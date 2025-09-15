@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Choose Membership Plan</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #eef2f7;
+            padding: 40px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            margin-bottom: 40px;
+            font-weight: normal;
+            color: #333;
+        }
+        .plans-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 30px;
+        }
+        .plan-card {
+            background-color: #fff;
+            border-radius: 12px;
+            padding: 35px 30px;
+            width: 30%;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .plan-title {
+            font-size: 22px;
+            margin-bottom: 25px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .plan-features {
+            margin: 25px 0;
+            text-align: left;
+            padding-left: 25px;
+            min-height: 150px;
+        }
+        .plan-features p {
+            margin: 12px 0;
+            color: #666;
+            font-size: 16px;
+            position: relative;
+            line-height: 1.5;
+        }
+        .plan-features p:before {
+            content: "-";
+            position: absolute;
+            left: -18px;
+            font-weight: bold;
+        }
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+            width: 80%;
+        }
+        .disabled-btn {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .popup-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .popup-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .popup-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            font-size: 22px;
+            cursor: pointer;
+            color: #777;
+            background: none;
+            border: none;
+        }
+
+        .payment-form {
+            margin-top: 20px;
+        }
+        .payment-form h3 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+            text-align: center;
+            font-size: 24px;
+        }
+        .payment-form label {
+            display: block;
+            margin: 15px 0 5px;
+            color: #555;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .payment-form input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
+        .form-group {
+            flex: 1;
+        }
+
+        .card-icons-wrapper {
+            position: relative;
+        }
+
+        .card-icons-wrapper input {
+            padding-right: 160px;
+        }
+
+        .card-icons-right {
+            position: absolute;
+            top: 50%;
+            right: 12px;
+            transform: translateY(-50%);
+            display: flex;
+            gap: 8px;
+        }
+
+        .card-icons-right img {
+            height: 24px;
+            width: auto;
+        }
+
+        .total-display {
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 6px;
+        }
+    </style>
+    <script>
+        function showCardForm(plan) {
+            document.getElementById('selected_plan').value = plan;
+            document.getElementById('total-amount').textContent =
+                plan === 'Professional' ? 'Total: $9.99/month' : 'Total: $19.99/month';
+            document.getElementById('popup-overlay').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closePopup() {
+            document.getElementById('popup-overlay').classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+    </script>
+</head>
+<body>
+<div class="container">
+    <h1>Choose Your Plan</h1>
+
+    <div class="plans-container">
+        <div class="plan-card">
+            <div class="plan-title">Free User $0/month</div>
+            <div class="plan-features">
+                <p>Basic features</p>
+                <p>Limited access</p>
+                <p>Community support</p>
+            </div>
+            <button class="btn disabled-btn" disabled>Current Plan</button>
+        </div>
+
+        <div class="plan-card">
+            <div class="plan-title">Professional $9.99/month</div>
+            <div class="plan-features">
+                <p>Access to advanced features</p>
+                <p>Full document generation</p>
+                <p>Priority support</p>
+            </div>
+            <button class="btn" onclick="showCardForm('Professional')">Select Plan</button>
+        </div>
+
+        <div class="plan-card">
+            <div class="plan-title">Professional Plus $19.99/month</div>
+            <div class="plan-features">
+                <p>Premium access with all features</p>
+                <p>Unlimited document generation</p>
+                <p>24/7 dedicated support</p>
+            </div>
+            <button class="btn" onclick="showCardForm('Professional Plus')">Select Plan</button>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="popup-overlay">
+        <div class="popup-content">
+            <button class="close-btn" onclick="closePopup()">&times;</button>
+            <form method="POST" action="/payment_process" class="payment-form">
+                <input type="hidden" name="selected_plan" id="selected_plan">
+                <h3>Enter Payment Details</h3>
+
+                <div class="total-display" id="total-amount">Total: $0/month</div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="first_name">First name</label>
+                        <input type="text" id="first_name" name="first_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="last_name">Last name</label>
+                        <input type="text" id="last_name" name="last_name" required>
+                    </div>
+                </div>
+
+                <div class="form-group card-icons-wrapper">
+                    <label for="card_number">Card number</label>
+                    <input type="text" id="card_number" name="card_number" placeholder="1234 5678 9012 3456" required>
+                    <div class="card-icons-right">
+                        <img src="https://img.icons8.com/color/48/visa.png" alt="visa">
+                        <img src="https://img.icons8.com/color/48/mastercard.png" alt="mastercard">
+                        <img src="https://img.icons8.com/color/48/amex.png" alt="amex">
+                        <img src="https://img.icons8.com/color/48/discover.png" alt="discover">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="expiry">MM/YY</label>
+                        <input type="text" id="expiry" name="card_expiry" placeholder="MM/YY" required>
+                    </div>
+                    <div class="form-group card-icons-wrapper">
+                        <label for="cvv">CVV</label>
+                        <input type="number" id="cvv" name="card_cvv" placeholder="123" required>
+                        <div class="card-icons-right">
+                            <img src="https://img.icons8.com/ios-filled/50/lock-2.png" alt="cvc">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn" type="submit">SUBMIT PAYMENT</button>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+
+
+
+

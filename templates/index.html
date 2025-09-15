@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IPaper</title>
+  
+  <style>
+
+    body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+.topbar {
+  background-color: #222;
+  color: white;
+  padding: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.nav-buttons a {
+  color: white;
+  margin-left: 15px;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.slider {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+}
+
+.slide {
+  min-width: 100%;
+  scroll-snap-align: center;
+}
+
+.slide img {
+  width: 100%;
+  height: auto;
+}
+
+.advantages, .video-section, .evaluation {
+  padding: 40px;
+  text-align: center;
+}
+
+.advantages ul {
+  list-style-type: none;
+  padding: 0;
+  font-size: 18px;
+}
+
+.rating span {
+  display: block;
+  font-size: 20px;
+  margin: 10px 0;
+}
+
+.slider {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  width: 100%;
+}
+
+.slide {
+  min-width: 100%;
+  scroll-snap-align: center;
+  flex-shrink: 0;
+}
+
+
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="logo">IPaper</div>
+    <div class="nav-buttons">
+      <a href="/login">Login</a>
+      <a href="/register">Register</a>
+      <a href="/admin-login">Admin</a>
+    </div>
+  </header>
+
+  <!-- Image Slider -->
+  <section class="slider" id="slider">
+  {% for image in images %}
+  <div class="slide">
+    <img src="{{ image[1] }}" alt="Slide Image">
+  </div>
+  {% endfor %}
+</section>
+
+  <!-- Our Advantages -->
+  <section class="advantages">
+    <h2>Our Advantages</h2>
+    <ul>
+      <li>Fast PDF summarization</li>
+      <li>Topic-based research clustering</li>
+      <li>Simple UI for research papers</li>
+    </ul>
+  </section>
+
+  <!-- Video Section -->
+  <section class="video-section">
+    <h2>Watch How It Works</h2>
+    {% if videos %}
+      <video width="640" height="360" controls>
+        <source src="{{ videos[0][1] }}" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    {% else %}
+      <p>No video available</p>
+    {% endif %}
+  </section>
+
+  <!-- User Evaluation -->
+  <section class="evaluation">
+    <h2>User Feedback</h2>
+    <div class="rating">
+      <span>⭐⭐⭐⭐⭐ - Excellent</span><br>
+      <span>⭐⭐⭐ - Good</span><br>
+      <span>⭐ - Bad</span>
+    </div>
+  </section>
+<script>
+  const slider = document.getElementById('slider');
+  let currentIndex = 0;
+
+  function autoSlide() {
+    const slides = document.querySelectorAll('.slide');
+    currentIndex = (currentIndex + 1) % slides.length;
+    slider.scrollTo({
+      left: slides[currentIndex].offsetLeft,
+      behavior: 'smooth'
+    });
+  }
+
+  setInterval(autoSlide, 3000); // Change slide every 3 seconds
+</script>
+</body>
+</html>
