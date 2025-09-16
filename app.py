@@ -20,7 +20,11 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
-app.config['UPLOAD_FOLDER'] = 'uploads'
+UPLOAD_FOLDER = os.path.join("static", "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 Session(app)
 
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx'}
@@ -845,6 +849,7 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
