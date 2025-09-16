@@ -918,7 +918,7 @@
 
   async function loadCategories() {
   try {
-    const res = await fetch("/get_categories");
+    const res = await fetch("/get_categories", { credentials: "same-origin" });
     if (!res.ok) throw new Error("Failed to load categories");
     categories = await res.json();
     renderCategories();
@@ -933,6 +933,7 @@
 
 </body>
 </html>
+
 
 
 
