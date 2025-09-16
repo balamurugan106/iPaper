@@ -645,16 +645,25 @@
   try {
     const res = await fetch("/add_category", {
       method: "POST",
+      credentials: "same-origin",        // << important: ensure session cookie is sent
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() })
     });
-    const result = await res.json();
-    if (result.success) {
-      // append to client-side list and rerender
+
+    let result;
+    try { result = await res.json(); } catch(e){ result = null; }
+
+    if (!res.ok) {
+      console.error("add_category failed:", res.status, result);
+      alert("Failed to add category: " + (result?.error || res.status));
+      return;
+    }
+
+    if (result && result.success) {
       categories.unshift({ id: result.id, name: result.name });
       renderCategories();
     } else {
-      alert("Failed to add category: " + (result.error || "Unknown error"));
+      alert("Failed to add category: " + (result?.error || "Unknown error"));
     }
   } catch (err) {
     console.error("Error adding category:", err);
@@ -924,6 +933,7 @@
 
 </body>
 </html>
+
 
 
 
