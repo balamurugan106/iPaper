@@ -209,39 +209,28 @@ def dashboard():
 
 @app.route('/upload-document', methods=['POST'])
 def upload_document():
-    if 'user_name' not in session:
-        return redirect('/login')
+    if "file" not in request.files:
+        return "No file part", 400
 
-    file = request.files['file']
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_data = file.read()
+    file = request.files["file"]
+    if file.filename == "":
+        return "No selected file", 400
 
-        conn = get_db_connection()
-        cur = conn.cursor()
+    # Secure the filename
+    filename = secure_filename(file.filename)
 
-        # Get user info
-        cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (session['user_name'],))
-        user = cur.fetchone()
-        if not user:
-            raise Exception("User not found")
-        user_id, email, profession = user
+    # Save file into static/uploads
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(file_path)
 
-        # Create large object (LOB)
-        lo_oid = conn.lobject(0, 'wb').oid  # create new large object
-        lo = conn.lobject(lo_oid, 'wb')
-        lo.write(file_data)
-        lo.close()
+    # Store only path in DB (NOT the file itself)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO UserDocuments (user_id, file_path) VALUES (%s, %s)",
+                (session["user_id"], file_path))
+    conn.commit()
+    cur.close()
 
-        # Store OID in the table
-        cur.execute("""
-            INSERT INTO userdocuments (user_id, name, email, profession, file_oid, document)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (user_id, session['user_name'], email, profession, lo_oid, filename))
-
-        conn.commit()
-        cur.close()
-        conn.close()
+    return "File uploaded successfully!"
 
     return redirect('/dashboard')
 
@@ -849,6 +838,7 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
