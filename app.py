@@ -209,28 +209,45 @@ def dashboard():
 
 @app.route('/upload-document', methods=['POST'])
 def upload_document():
-    if "file" not in request.files:
-        return "No file part", 400
+    if 'user_id' not in session:
+        flash("Please login to upload files", "error")
+        return redirect('/login')
 
-    file = request.files["file"]
-    if file.filename == "":
-        return "No selected file", 400
+    if 'file' not in request.files:
+        flash("No file selected", "error")
+        return redirect('/dashboard')
 
-    # Secure the filename
-    filename = secure_filename(file.filename)
+    file = request.files['file']
+    if file.filename == '':
+        flash("No file selected", "error")
+        return redirect('/dashboard')
 
-    # Save file into static/uploads
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    file.save(file_path)
+    if not allowed_file(file.filename):
+        flash("Only PDF / DOC / DOCX allowed", "error")
+        return redirect('/dashboard')
 
-    # Store only path in DB (NOT the file itself)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO UserDocuments (user_id, file_path) VALUES (%s, %s)",
-                (session["user_id"], file_path))
-    conn.commit()
-    cur.close()
+    # avoid collisions: add timestamp (or use uuid)
+    from time import time
+    filename = f"{int(time())}_{secure_filename(file.filename)}"
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
 
-    return "File uploaded successfully!"
+    try:
+        file.save(save_path)
+
+        # store only filename in DB (document column)
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO userdocuments (user_id, document) VALUES (%s, %s)",
+            (session['user_id'], filename)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        flash("File uploaded successfully", "success")
+    except Exception as e:
+        flash("Upload failed: " + str(e), "error")
 
     return redirect('/dashboard')
 
@@ -838,6 +855,7 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
