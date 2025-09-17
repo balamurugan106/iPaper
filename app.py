@@ -259,27 +259,16 @@ def view_document(doc_id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s", (doc_id,))
-        result = cur.fetchone()
+        cur.execute("SELECT document FROM userdocuments WHERE id = %s", (doc_id,))
+        row = cur.fetchone()
         cur.close()
         conn.close()
 
-        if not result or result[0] is None:
+        if not row or not row[0]:
             return "Document not found", 404
 
-        file_oid, filename = result
-
-        conn = get_db_connection()
-        lo = conn.lobject(file_oid, 'rb')
-        file_data = lo.read()
-        lo.close()
-        conn.close()
-
-        response = make_response(file_data)
-        response.headers.set('Content-Type', 'application/pdf')
-        response.headers.set('Content-Disposition', 'inline', filename=filename)
-        return response
-
+        filename = row[0]
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
     except Exception as e:
         return f"Error displaying document: {e}", 500
 
@@ -855,6 +844,7 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
