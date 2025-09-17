@@ -291,13 +291,12 @@ def view_document(doc_id):
 def delete_document(doc_id):
     if 'user_name' not in session:
         return redirect('/login')
-
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT document FROM userdocuments WHERE id = %s", (doc_id,))
         result = cur.fetchone()
-        if result:
+        if result and result[0]:
             filename = result[0]
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             if os.path.exists(filepath):
@@ -311,6 +310,7 @@ def delete_document(doc_id):
         flash("Error deleting document: " + str(e), "error")
 
     return redirect('/dashboard')
+
 
 
 
@@ -855,6 +855,7 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
