@@ -437,6 +437,17 @@
     </div>
     <h1>Welcome, {{ name }}</h1>
     <p class="muted"></p>
+    <h2 id="doc-title" class="muted"></h2>
+  <div id="summary-area" style="
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: var(--shadow);
+        min-height: 200px;
+        white-space: pre-wrap;">
+    <em>No summary generated yet.</em>
+  </div>
   </main>
 </div>
 
@@ -919,11 +930,50 @@
     renderCategories();
   }
 }
+document.addEventListener("DOMContentLoaded", function () {
+  const generateBtn = document.getElementById("generateBtn");
 
+  if (generateBtn) {
+    generateBtn.onclick = async () => {
+      // get active/selected document
+      const activeDoc = document.querySelector(".document-item"); 
+      if (!activeDoc) {
+        alert("Please upload or select a document first!");
+        return;
+      }
+
+      const docId = activeDoc.dataset.docId;
+      const fileName = activeDoc.dataset.fileName;
+
+      generateBtn.disabled = true;
+      generateBtn.textContent = "Generating...";
+
+      try {
+        const res = await fetch(`/nlp/generate_summary/${docId}`, { method: "POST" });
+        const data = await res.json();
+
+        if (data.summary) {
+          document.getElementById("doc-title").textContent = fileName;
+          document.getElementById("summary-area").textContent = data.summary;
+        } else {
+          alert("Error: " + (data.error || "failed"));
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Failed to generate summary.");
+      }
+
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Generate";
+    };
+  }
+});
+  
 </script>
 
 </body>
 </html>
+
 
 
 
