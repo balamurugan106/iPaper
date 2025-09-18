@@ -6,3 +6,20 @@ python-dotenv
 werkzeug
 bcrypt
 
+transformers>=4.30.0
+torch>=1.13.0         # or 2.x if available on your platform
+sentence-transformers>=2.2.2
+scikit-learn
+pdfplumber
+python-docx
+nltk
+numpy
+pandas
+
+# optional (for better clustering & OCR support)
+umap-learn            # for BERTopic or dimensionality reduction
+hdbscan               # better clustering than KMeans
+pillow                # needed if you want OCR
+pytesseract           # OCR (requires Tesseract installed on system)
+pdf2image             # OCR fallback (requires poppler)
+pgvector              # only if your Neon/Postgres supports pgvector extension
