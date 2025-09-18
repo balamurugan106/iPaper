@@ -20,11 +20,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
-UPLOAD_FOLDER = os.path.join("static", "uploads")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config['UPLOAD_FOLDER'] = 'uploads'
 Session(app)
 
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx'}
@@ -209,45 +205,39 @@ def dashboard():
 
 @app.route('/upload-document', methods=['POST'])
 def upload_document():
-    if 'user_id' not in session:
-        flash("Please login to upload files", "error")
+    if 'user_name' not in session:
         return redirect('/login')
 
-    if 'file' not in request.files:
-        flash("No file selected", "error")
-        return redirect('/dashboard')
-
     file = request.files['file']
-    if file.filename == '':
-        flash("No file selected", "error")
-        return redirect('/dashboard')
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_data = file.read()
 
-    if not allowed_file(file.filename):
-        flash("Only PDF / DOC / DOCX allowed", "error")
-        return redirect('/dashboard')
-
-    # avoid collisions: add timestamp (or use uuid)
-    from time import time
-    filename = f"{int(time())}_{secure_filename(file.filename)}"
-    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-    try:
-        file.save(save_path)
-
-        # store only filename in DB (document column)
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO userdocuments (user_id, document) VALUES (%s, %s)",
-            (session['user_id'], filename)
-        )
+
+        # Get user info
+        cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (session['user_name'],))
+        user = cur.fetchone()
+        if not user:
+            raise Exception("User not found")
+        user_id, email, profession = user
+
+        # Create large object (LOB)
+        lo_oid = conn.lobject(0, 'wb').oid  # create new large object
+        lo = conn.lobject(lo_oid, 'wb')
+        lo.write(file_data)
+        lo.close()
+
+        # Store OID in the table
+        cur.execute("""
+            INSERT INTO userdocuments (user_id, name, email, profession, file_oid, document)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (user_id, session['user_name'], email, profession, lo_oid, filename))
+
         conn.commit()
         cur.close()
         conn.close()
-
-        flash("File uploaded successfully", "success")
-    except Exception as e:
-        flash("Upload failed: " + str(e), "error")
 
     return redirect('/dashboard')
 
@@ -259,16 +249,27 @@ def view_document(doc_id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT document FROM userdocuments WHERE id = %s", (doc_id,))
-        row = cur.fetchone()
+        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s", (doc_id,))
+        result = cur.fetchone()
         cur.close()
         conn.close()
 
-        if not row or not row[0]:
+        if not result or result[0] is None:
             return "Document not found", 404
 
-        filename = row[0]
-        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+        file_oid, filename = result
+
+        conn = get_db_connection()
+        lo = conn.lobject(file_oid, 'rb')
+        file_data = lo.read()
+        lo.close()
+        conn.close()
+
+        response = make_response(file_data)
+        response.headers.set('Content-Type', 'application/pdf')
+        response.headers.set('Content-Disposition', 'inline', filename=filename)
+        return response
+
     except Exception as e:
         return f"Error displaying document: {e}", 500
 
@@ -280,12 +281,13 @@ def view_document(doc_id):
 def delete_document(doc_id):
     if 'user_name' not in session:
         return redirect('/login')
+
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT document FROM userdocuments WHERE id = %s", (doc_id,))
         result = cur.fetchone()
-        if result and result[0]:
+        if result:
             filename = result[0]
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             if os.path.exists(filepath):
@@ -299,7 +301,6 @@ def delete_document(doc_id):
         flash("Error deleting document: " + str(e), "error")
 
     return redirect('/dashboard')
-
 
 
 
@@ -844,46 +845,5 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
