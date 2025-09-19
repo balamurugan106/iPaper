@@ -9,6 +9,8 @@ from flask import make_response
 from flask import send_from_directory
 from flask import Response
 from flask_session import Session
+import pdfplumber, io
+from transformers import pipeline
 import bcrypt
 import os
 import re
@@ -843,7 +845,52 @@ def feedback():
     return render_template("feedback.html")
 
 
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+
+def extract_text_from_pdf(file_bytes):
+    text = ""
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() or ""
+    return text
+
+@app.route("/nlp/generate_summary/<int:doc_id>", methods=["POST"])
+def generate_summary(doc_id):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s", (doc_id,))
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not result:
+            return jsonify({"error": "Document not found"}), 404
+
+        file_oid, filename = result
+        conn = get_db_connection()
+        lo = conn.lobject(file_oid, 'rb')
+        file_data = lo.read()
+        lo.close()
+        conn.close()
+
+        # Extract text
+        text = extract_text_from_pdf(file_data)
+        if not text.strip():
+            return jsonify({"error": "No text found in PDF"}), 400
+
+        # Summarize (limit text size for model)
+        chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
+        summaries = [summarizer(chunk, max_length=130, min_length=30, do_sample=False)[0]['summary_text'] for chunk in chunks[:3]]
+        final_summary = " ".join(summaries)
+
+        return jsonify({"summary": final_summary})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
