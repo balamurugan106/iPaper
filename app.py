@@ -11,6 +11,7 @@ from flask import Response
 from flask_session import Session
 import pdfplumber, io
 from transformers import pipeline
+import functools
 import bcrypt
 import os
 import re
@@ -845,7 +846,9 @@ def feedback():
     return render_template("feedback.html")
 
 
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+@functools.lru_cache(maxsize=1)
+def get_summarizer():
+    return pipeline("summarization", model="t5-small")
 
 def extract_text_from_pdf(file_bytes):
     text = ""
@@ -879,18 +882,21 @@ def generate_summary(doc_id):
         if not text.strip():
             return jsonify({"error": "No text found in PDF"}), 400
 
-        # Summarize (limit text size for model)
-        chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
-        summaries = [summarizer(chunk, max_length=130, min_length=30, do_sample=False)[0]['summary_text'] for chunk in chunks[:3]]
-        final_summary = " ".join(summaries)
+        # Shorten text to avoid overloading the model
+        text = text[:2000]
 
-        return jsonify({"summary": final_summary})
+        summarizer = get_summarizer()
+        summary = summarizer(text, max_length=120, min_length=30, do_sample=False)[0]["summary_text"]
+
+        return jsonify({"summary": summary})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
