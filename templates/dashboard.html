@@ -563,121 +563,139 @@
 </div>
 
 <script>
-    const $ = selector => document.querySelector(selector);
-    const $$= selector => document.querySelectorAll(selector);
-    const app = $('#app');
-  
-    function initResizeButtons() {
-      $('#btnLS').textContent = '«';
-      $('#btnUS').textContent = '«';
-    }
-  
-    // Add these new functions for state management
-    function state() {
-      return {
-        hasLS: !app.classList.contains('collapse-ls'),
-        hasUS: !app.classList.contains('collapse-us')
-      }
-    }
-  
-    function applyCollapse(ls, us) {
-      app.classList.toggle('collapse-ls', !ls);
-      app.classList.toggle('collapse-us', !us);
-      app.classList.toggle('collapse-both', !ls && !us);
-      
-      // Update button directions
-      const btnLS = document.getElementById('btnLS');
-      const btnUS = document.getElementById('btnUS');
-      if (btnLS) { btnLS.textContent = ls ? '«' : '»'; }
-      if (btnUS) { btnUS.textContent = us ? '«' : '»'; }
-    }
-  
-    // Update the button click handlers
-    $('#btnLS').onclick = () => {
-      const s = state();
-      applyCollapse(!s.hasLS, s.hasUS);
-    };
-  
-    $('#btnUS').onclick = () => {
-      const s = state();
-      applyCollapse(s.hasLS, !s.hasUS);
-    };
-  
-    function createDocumentItem(doc) {
-      const div = document.createElement('div');
-      div.className = 'document-item';
-      div.textContent = doc.filename;
-      div.dataset.docId = doc.id; // Store document ID
-      div.dataset.fileName = doc.filename; // Store filename for drag operations
-      div.draggable = true; // Enable dragging
-      div.onclick = () => window.open(`/view-document/${doc.id}`, '_blank');
-  
-      const delBtn = document.createElement('button');
-      delBtn.className = 'document-delete-btn';
-      delBtn.textContent = '🗑';
-      delBtn.onclick = async (e) => {
-        e.stopPropagation();
-        if (confirm(`Delete "${doc.filename}"?`)) {
-          await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
-          loadDocuments();
-        }
-      };
-      
-      // Add drag event listeners
-      div.addEventListener('dragstart', function(e) {
-        this.classList.add('dragging');
-        e.dataTransfer.setData('text/plain', JSON.stringify({
-          docId: this.dataset.docId,
-          fileName: this.dataset.fileName
-        }));
-        e.dataTransfer.effectAllowed = 'move';
-      });
-      
-      div.addEventListener('dragend', function() {
-        this.classList.remove('dragging');
-      });
-      
-      div.appendChild(delBtn);
-      return div;
-    }
-  
-    async function loadDocuments() {
-      const res = await fetch('/get-documents');
-      const docs = await res.json();
-  
-      const container = $('#documents-container');
-      container.innerHTML = '';
-      docs.forEach(doc => container.appendChild(createDocumentItem(doc)));
-    }
-  
-    // ENHANCED: Category management with drag & drop and persistence
-    const userId = "{{ session.get('user_id', '') }}";
-    let categories = [];
-    let documentCategories = {};    // optional in-memory mapping (we rely on server)
-    let currentCategory = 'all';
+const $ = selector => document.querySelector(selector);
+const $$= selector => document.querySelectorAll(selector);
+const app = $('#app');
 
-  
-    // Save categories to localStorage
-    function saveCategories() {
-      localStorage.setItem('userCategories', JSON.stringify(categories));
-      localStorage.setItem('documentCategories', JSON.stringify(documentCategories));
-    }
+function initResizeButtons() {
+  $('#btnLS').textContent = '«';
+  $('#btnUS').textContent = '«';
+}
 
-    // Add new category
-    async function addCategory(name) {
-  if (!name || !name.trim()) {
-    alert("Category name cannot be empty.");
-    return;
+// Add these new functions for state management
+function state() {
+  return {
+    hasLS: !app.classList.contains('collapse-ls'),
+    hasUS: !app.classList.contains('collapse-us')
   }
+}
+
+function applyCollapse(ls, us) {
+  app.classList.toggle('collapse-ls', !ls);
+  app.classList.toggle('collapse-us', !us);
+  app.classList.toggle('collapse-both', !ls && !us);
+
+  // Update button directions
+  const btnLS = document.getElementById('btnLS');
+  const btnUS = document.getElementById('btnUS');
+  if (btnLS) { btnLS.textContent = ls ? '«' : '»'; }
+  if (btnUS) { btnUS.textContent = us ? '«' : '»'; }
+}
+
+// Update the button click handlers
+$('#btnLS').onclick = () => {
+  const s = state();
+  applyCollapse(!s.hasLS, s.hasUS);
+};
+
+$('#btnUS').onclick = () => {
+  const s = state();
+  applyCollapse(s.hasLS, !s.hasUS);
+};
+
+// ========== DOCUMENT HANDLING ==========
+
+function createDocumentItem(doc) {
+  const div = document.createElement('div');
+  div.className = 'document-item';
+  div.textContent = doc.filename;
+  div.dataset.docId = doc.id;
+  div.dataset.fileName = doc.filename;
+  div.draggable = true;
+
+  // Add snippet if summary exists
+  if (doc.summary) {
+    const snippet = document.createElement('div');
+    snippet.className = 'summary-snippet';
+    snippet.textContent = doc.summary.length > 120 ? doc.summary.slice(0,120) + '…' : doc.summary;
+    div.appendChild(snippet);
+  }
+
+  // Select document on click
+  div.addEventListener('click', () => {
+    document.querySelectorAll('.document-item').forEach(d => d.classList.remove('selected'));
+    div.classList.add('selected');
+    document.getElementById('doc-title').textContent = doc.filename;
+    document.getElementById('summary-area').textContent = doc.summary || 'No summary generated yet.';
+  });
+
+  // Open doc on double click
+  div.addEventListener('dblclick', () => window.open(`/view-document/${doc.id}`, '_blank'));
+
+  // Delete button
+  const delBtn = document.createElement('button');
+  delBtn.className = 'document-delete-btn';
+  delBtn.textContent = '🗑';
+  delBtn.onclick = async (e) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${doc.filename}"?`)) {
+      await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
+      loadDocuments();
+      document.getElementById('doc-title').textContent = '';
+      document.getElementById('summary-area').innerHTML = '<em>No summary generated yet.</em>';
+    }
+  };
+
+  // Drag events
+  div.addEventListener('dragstart', function(e) {
+    this.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', JSON.stringify({
+      docId: this.dataset.docId,
+      fileName: this.dataset.fileName
+    }));
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  div.addEventListener('dragend', function() { this.classList.remove('dragging'); });
+
+  div.appendChild(delBtn);
+  return div;
+}
+
+async function loadDocuments() {
+  const res = await fetch('/get-documents');
+  const docs = await res.json();
+
+  const container = $('#documents-container');
+  container.innerHTML = '';
+  docs.forEach(doc => container.appendChild(createDocumentItem(doc)));
+
+  // auto-select first doc
+  if (!document.querySelector('.document-item.selected') && docs.length) {
+    container.querySelector('.document-item').click();
+  }
+}
+
+// ========== CATEGORY MANAGEMENT (your existing code kept) ==========
+
+const userId = "{{ session.get('user_id', '') }}";
+let categories = [];
+let documentCategories = {};
+let currentCategory = 'all';
+
+function saveCategories() {
+  localStorage.setItem('userCategories', JSON.stringify(categories));
+  localStorage.setItem('documentCategories', JSON.stringify(documentCategories));
+}
+
+async function addCategory(name) {
+  if (!name || !name.trim()) { alert("Category name cannot be empty."); return; }
   try {
     const res = await fetch("/add_category", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() })
     });
     const result = await res.json();
     if (result.success) {
-      // append to client-side list and rerender
       categories.unshift({ id: result.id, name: result.name });
       renderCategories();
     } else {
@@ -689,19 +707,16 @@
   }
 }
 
-
-    // Delete category
-    async function deleteCategory(categoryId) {
+async function deleteCategory(categoryId) {
   if (!confirm('Are you sure you want to delete this category? Documents will be moved back to All Documents.')) return;
   try {
     const res = await fetch(`/delete_category/${categoryId}`, { method: "DELETE" });
     const result = await res.json();
     if (result.success) {
       categories = categories.filter(cat => String(cat.id) !== String(categoryId));
-      // If we were viewing that category, switch to 'all'
       if (currentCategory === String(categoryId)) setCurrentCategory('all');
       renderCategories();
-      loadDocuments(); // refresh documents
+      loadDocuments();
     } else {
       alert("Failed to delete category: " + (result.error || "Unknown error"));
     }
@@ -711,104 +726,60 @@
   }
 }
 
-
-    // Setup drop zone for category
-    function setupDropZone(categoryElement) {
-      categoryElement.addEventListener('dragover', function(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        this.classList.add('drag-over');
+function setupDropZone(categoryElement) {
+  categoryElement.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    this.classList.add('drag-over');
+  });
+  categoryElement.addEventListener('dragleave', function(e) {
+    if (!this.contains(e.relatedTarget)) this.classList.remove('drag-over');
+  });
+  categoryElement.addEventListener('drop', async function(e) {
+    e.preventDefault(); this.classList.remove('drag-over');
+    try {
+      const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const targetCategory = this.dataset.category;
+      const response = await fetch('/update-document-category', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documentId: dragData.docId,
+          category: targetCategory === 'all' ? null : targetCategory
+        })
       });
-      
-      categoryElement.addEventListener('dragleave', function(e) {
-        if (!this.contains(e.relatedTarget)) {
-          this.classList.remove('drag-over');
-        }
-      });
-      
-      categoryElement.addEventListener('drop', async function(e) {
-        e.preventDefault();
-        this.classList.remove('drag-over');
-        
-        try {
-          const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
-          const targetCategory = this.dataset.category;
-          
-          // Update document category in database
-          const response = await fetch('/update-document-category', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              documentId: dragData.docId,
-              category: targetCategory === 'all' ? null : targetCategory
-            })
-          });
-          
-          if (response.ok) {
-            // Update local storage
-            if (targetCategory === 'all') {
-              delete documentCategories[dragData.docId];
-            } else {
-              documentCategories[dragData.docId] = targetCategory;
-            }
-            saveCategories();
-            
-            // Refresh documents if needed
-            loadDocuments();
-            
-            console.log(`Moved "${dragData.fileName}" to ${targetCategory === 'all' ? 'All Documents' : this.querySelector('.category-title').textContent}`);
-          } else {
-            alert('Failed to update document category');
-          }
-        } catch (error) {
-          console.error('Error handling drop:', error);
-        }
-      });
+      if (response.ok) {
+        if (targetCategory === 'all') delete documentCategories[dragData.docId];
+        else documentCategories[dragData.docId] = targetCategory;
+        saveCategories();
+        loadDocuments();
+      } else alert('Failed to update document category');
+    } catch (error) {
+      console.error('Error handling drop:', error);
     }
+  });
+}
 
-    // Render categories in sidebar
-    function renderCategories() {
+function renderCategories() {
   const container = document.querySelector('.categories-container');
-
-  // Keep "All Documents" category (already in DOM) — remove any other custom categories first
   const allDocsCategory = container.querySelector('.category[data-category="all"]');
-
   const existingCategories = container.querySelectorAll('.category:not([data-category="all"])');
   existingCategories.forEach(el => el.remove());
-
-  // Add categories from server
   categories.forEach(category => {
     const categoryEl = document.createElement('div');
     categoryEl.className = 'category';
     categoryEl.dataset.category = String(category.id);
-
     const titleEl = document.createElement('div');
     titleEl.className = 'category-title';
     titleEl.textContent = category.name;
-
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'delete-category';
     deleteBtn.textContent = '🗑';
-    deleteBtn.onclick = (e) => {
-      e.stopPropagation();
-      deleteCategory(category.id);
-    };
-
-    categoryEl.appendChild(titleEl);
-    categoryEl.appendChild(deleteBtn);
-
-    // click to switch
+    deleteBtn.onclick = (e) => { e.stopPropagation(); deleteCategory(category.id); };
+    categoryEl.appendChild(titleEl); categoryEl.appendChild(deleteBtn);
     categoryEl.onclick = () => setCurrentCategory(String(category.id));
-
-    // make it a dropzone
     setupDropZone(categoryEl);
-
     container.appendChild(categoryEl);
   });
-
-  // ensure the active category class exists
   const activeEl = container.querySelector(`.category[data-category="${currentCategory}"]`);
   if (activeEl) {
     container.querySelectorAll('.category').forEach(c => c.classList.remove('active-category'));
@@ -816,179 +787,93 @@
   }
 }
 
+function setCurrentCategory(categoryId) {
+  currentCategory = categoryId;
+  $$('.category').forEach(c => c.classList.remove('active-category'));
+  $(`.category[data-category="${categoryId}"]`).classList.add('active-category');
+  const categoryName = categoryId === 'all' ? 'All Documents' : 
+    categories.find(cat => cat.id === categoryId)?.name || categoryId;
+  $('#current-category').textContent = `Showing: ${categoryName}`;
+  filterDocuments();
+}
 
-    // Set current category and update display
-    function setCurrentCategory(categoryId) {
-      currentCategory = categoryId;
-      
-      // Update active state
-      $$('.category').forEach(c => c.classList.remove('active-category'));
-      $(`.category[data-category="${categoryId}"]`).classList.add('active-category');
-      
-      // Update current category display
-      const categoryName = categoryId === 'all' ? 'All Documents' : 
-        categories.find(cat => cat.id === categoryId)?.name || categoryId;
-      $('#current-category').textContent = `Showing: ${categoryName}`;
-      
-      // Filter and display documents
-      filterDocuments();
-    }
-
-    // Filter documents based on current category
-    async function filterDocuments() {
+async function filterDocuments() {
   const res = await fetch('/get-documents');
   const docs = await res.json();
-
   let filteredDocs = docs;
-
   if (currentCategory !== 'all') {
     filteredDocs = docs.filter(doc => String(doc.category) === String(currentCategory));
   }
-
   const container = $('#documents-container');
   container.innerHTML = '';
   filteredDocs.forEach(doc => container.appendChild(createDocumentItem(doc)));
 }
 
+// ========== INIT ==========
 
-    document.addEventListener('DOMContentLoaded', () => {
-      initResizeButtons();
-      loadCategories();       // load categories from server
-      loadDocuments();        // load documents (documents include category field)
+document.addEventListener('DOMContentLoaded', () => {
+  initResizeButtons();
+  loadCategories();
+  loadDocuments();
 
-      
-      // Setup "All Documents" category
-      const allDocsCategory = $('.category[data-category="all"]');
-      if (allDocsCategory) {
-        allDocsCategory.onclick = () => setCurrentCategory('all');
-        setupDropZone(allDocsCategory);
-      }
-      
-      // Initialize button arrow directions to match current state
-      const s = state();
-      const btnLS = document.getElementById('btnLS');
-      const btnUS = document.getElementById('btnUS');
-      if (btnLS) { btnLS.textContent = s.hasLS ? '«' : '»'; }
-      if (btnUS) { btnUS.textContent = s.hasUS ? '«' : '»'; }
-    });
-  
-    document.addEventListener("DOMContentLoaded", function () {
-      const addCategoryBtn = document.getElementById("addCategoryBtn");
-  
-      addCategoryBtn.addEventListener("click", function () {
-        const categoryName = prompt("Enter new category name:");
-        if (categoryName && categoryName.trim()) {
-          addCategory(categoryName.trim());
-        }
-      });
-    });
-
-    // Template modal functions
-    function showTemplateContent(templateType) {
-      // Hide all content
-      document.querySelectorAll('.template-selector-modal .content-area > div').forEach(div => {
-        div.classList.add('hidden');
-      });
-      
-      // Show selected content
-      const targetContent = document.getElementById(`${templateType}-content`);
-      if (targetContent) {
-        targetContent.classList.remove('hidden');
-      }
-      
-      // Update active state
-      document.querySelectorAll('.sidebar-item').forEach(item => {
-        item.classList.remove('active');
-      });
-      event.target.classList.add('active');
-    }
-
-    // Generate button functionality
-    document.addEventListener('DOMContentLoaded', function() {
-      const generateBtn = document.getElementById('generateBtn');
-      const templateModal = document.getElementById('templateSelectorModal');
-      const generateButton = document.querySelector('.generate-button');
-      
-      // Show template modal
-      if (generateBtn) {
-        generateBtn.onclick = () => {
-          templateModal.classList.remove('hidden');
-        };
-      }
-      
-      // Close modal when clicking outside
-      if (templateModal) {
-        templateModal.onclick = (e) => {
-          if (e.target === templateModal) {
-            templateModal.classList.add('hidden');
-          }
-        };
-      }
-      
-      // Generate button in modal
-      if (generateButton) {
-        generateButton.onclick = () => {
-          templateModal.classList.add('hidden');
-          alert('Template generation started!');
-        };
-      }
-    });
-
-  async function loadCategories() {
-  try {
-    const res = await fetch("/get_categories");
-    if (!res.ok) throw new Error("Failed to load categories");
-    categories = await res.json();
-    renderCategories();
-  } catch (err) {
-    console.error("Error loading categories:", err);
-    categories = []; // fallback
-    renderCategories();
+  const allDocsCategory = $('.category[data-category="all"]');
+  if (allDocsCategory) {
+    allDocsCategory.onclick = () => setCurrentCategory('all');
+    setupDropZone(allDocsCategory);
   }
-}
+  const s = state();
+  const btnLS = document.getElementById('btnLS');
+  const btnUS = document.getElementById('btnUS');
+  if (btnLS) { btnLS.textContent = s.hasLS ? '«' : '»'; }
+  if (btnUS) { btnUS.textContent = s.hasUS ? '«' : '»'; }
+});
+
+// ========== GENERATE SUMMARY ==========
+
 document.addEventListener("DOMContentLoaded", function () {
   const generateBtn = document.getElementById("generateBtn");
-
   if (generateBtn) {
     generateBtn.onclick = async () => {
-      // get active/selected document
-      const activeDoc = document.querySelector(".document-item"); 
+      const activeDoc = document.querySelector(".document-item.selected");
       if (!activeDoc) {
-        alert("Please upload or select a document first!");
+        alert("Please select a document first!");
         return;
       }
-
       const docId = activeDoc.dataset.docId;
       const fileName = activeDoc.dataset.fileName;
-
       generateBtn.disabled = true;
       generateBtn.textContent = "Generating...";
-
       try {
         const res = await fetch(`/nlp/generate_summary/${docId}`, { method: "POST" });
         const data = await res.json();
-
-        if (data.summary) {
+        if (res.ok && data.summary) {
           document.getElementById("doc-title").textContent = fileName;
           document.getElementById("summary-area").textContent = data.summary;
+          let snippet = activeDoc.querySelector('.summary-snippet');
+          if (!snippet) {
+            snippet = document.createElement('div');
+            snippet.className = 'summary-snippet';
+            activeDoc.appendChild(snippet);
+          }
+          snippet.textContent = data.summary.length > 120 ? data.summary.slice(0,120) + '…' : data.summary;
         } else {
-          alert("Error: " + (data.error || "failed"));
+          alert("Error: " + (data.error || "Failed to generate summary"));
         }
       } catch (err) {
         console.error(err);
         alert("Failed to generate summary.");
       }
-
       generateBtn.disabled = false;
       generateBtn.textContent = "Generate";
     };
   }
 });
-  
 </script>
+
 
 </body>
 </html>
+
 
 
 
