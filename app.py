@@ -9,7 +9,7 @@ from flask import make_response
 from flask import send_from_directory
 from flask import Response
 from flask_session import Session
-import pdfplumber, io
+import pdfplumber, io, requests
 from transformers import pipeline
 import functools
 import bcrypt
@@ -846,49 +846,80 @@ def feedback():
     return render_template("feedback.html")
 
 
-@functools.lru_cache(maxsize=1)
-def get_summarizer():
-    return pipeline("summarization", model="t5-small")
-
-def extract_text_from_pdf(file_bytes):
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
+# --- Hugging Face Inference API summarizer route ---
+def call_hf_summarize(text: str, model: str=None, max_length: int = 120, min_length: int = 30):
+    """Call Hugging Face Inference API and return summary string."""
+    token = os.getenv("HUGGINGFACE_API_TOKEN")
+    if not token:
+        raise RuntimeError("HUGGINGFACE_API_TOKEN not set in environment")
+    model = model or os.getenv("HUGGINGFACE_MODEL", "sshleifer/distilbart-cnn-12-6")
+    url = f"https://api-inference.huggingface.co/models/{model}"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"inputs": text, "parameters": {"max_length": max_length, "min_length": min_length}}
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    if isinstance(data, list) and "summary_text" in data[0]:
+        return data[0]["summary_text"]
+    if isinstance(data, dict) and "error" in data:
+        raise RuntimeError("HF error: " + data["error"])
+    return str(data)
 
 @app.route("/nlp/generate_summary/<int:doc_id>", methods=["POST"])
 def generate_summary(doc_id):
     try:
+        # fetch file OID
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s", (doc_id,))
-        result = cur.fetchone()
+        row = cur.fetchone()
         cur.close()
         conn.close()
+        if not row:
+            return jsonify({"error":"Document not found"}), 404
 
-        if not result:
-            return jsonify({"error": "Document not found"}), 404
-
-        file_oid, filename = result
+        file_oid, filename = row
+        # read large object
         conn = get_db_connection()
         lo = conn.lobject(file_oid, 'rb')
-        file_data = lo.read()
+        file_bytes = lo.read()
         lo.close()
         conn.close()
 
-        # Extract text
-        text = extract_text_from_pdf(file_data)
+        # extract text
+        text = ""
+        try:
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for p in pdf.pages:
+                    text += p.extract_text() or ""
+        except Exception:
+            try:
+                text = file_bytes.decode('utf-8', errors='ignore')
+            except Exception:
+                text = ""
+
         if not text.strip():
-            return jsonify({"error": "No text found in PDF"}), 400
+            return jsonify({"error":"No extractable text found."}), 400
 
-        # Shorten text to avoid overloading the model
-        text = text[:2000]
+        # trim to avoid API limits (max 4000 chars)
+        snippet = text[:4000]
 
-        summarizer = get_summarizer()
-        summary = summarizer(text, max_length=120, min_length=30, do_sample=False)[0]["summary_text"]
+        # summarize via Hugging Face API
+        summary = call_hf_summarize(snippet)
 
-        return jsonify({"summary": summary})
+        # (optional) save summary to DB
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("UPDATE userdocuments SET summary = %s, summary_status = %s WHERE id = %s",
+                        (summary, 'done', doc_id))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+        return jsonify({"summary": summary}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -896,6 +927,7 @@ def generate_summary(doc_id):
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
