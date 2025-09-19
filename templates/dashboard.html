@@ -36,6 +36,22 @@
       background:transparent;
       width:var(--bar-w);
     }
+
+    /* add this inside your existing <style> block */
+.document-item.selected {
+  outline: 2px solid var(--brand);
+  background: #e8f0ff;
+}
+.document-item .summary-snippet {
+  font-size:12px;
+  color:var(--muted);
+  margin-top:6px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+    
     .resizer::after{
       content:"";
       position:absolute;
@@ -973,6 +989,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 </body>
 </html>
+
 
 
 
