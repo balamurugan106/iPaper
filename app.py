@@ -693,35 +693,22 @@ def delete_template(id):
     except Exception as e:
         return f"Error deleting template: {e}"
 
-@app.route('/get-documents', methods=['GET'])
+@app.route("/get-documents")
 def get_documents():
-    if 'user_name' not in session:
-        return redirect('/login')
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    # Fetch user ID
-    cur.execute("SELECT id FROM users WHERE name = %s", (session['user_name'],))
-    user = cur.fetchone()
-    if not user:
-        cur.close()
-        conn.close()
+    if "user_id" not in session:
         return jsonify([])
+    
+    user_id = session["user_id"]
 
-    user_id = user[0]
-    cur.execute("SELECT id, document, category FROM userdocuments WHERE user_id = %s AND document IS NOT NULL", (user_id,))
-    docs = [
-    {"id": row[0], "filename": row[1], "category": row[2]}
-    for row in cur.fetchall()
-    if row[1]  # ensure filename not None or empty
-    ]
-
-
-
+    cur = conn.cursor()
+    cur.execute("SELECT id, document, summary FROM userdocuments WHERE user_id = %s", (user_id,))
+    docs = cur.fetchall()
     cur.close()
-    conn.close()
-    return jsonify(docs)
+
+    return jsonify([
+        {"id": d[0], "filename": d[1], "summary": d[2]}
+        for d in docs if d[1] is not None
+    ])
 
 
 # Add category
@@ -923,6 +910,7 @@ def generate_summary(doc_id):
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
 
 
