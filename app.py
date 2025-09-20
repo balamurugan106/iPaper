@@ -846,12 +846,11 @@ def feedback():
     return render_template("feedback.html")
 
 
-# --- Hugging Face Inference API summarizer route ---
 def call_hf_summarize(text: str, model: str=None, max_length: int = 120, min_length: int = 30):
     """Call Hugging Face Inference API and return summary string."""
     token = os.getenv("HUGGINGFACE_API_TOKEN")
     if not token:
-        raise RuntimeError("HUGGINGFACE_API_TOKEN not set in environment")
+        raise RuntimeError("HUGGINGFACE_API_TOKEN not set")
     model = model or os.getenv("HUGGINGFACE_MODEL", "sshleifer/distilbart-cnn-12-6")
     url = f"https://api-inference.huggingface.co/models/{model}"
     headers = {"Authorization": f"Bearer {token}"}
@@ -868,25 +867,24 @@ def call_hf_summarize(text: str, model: str=None, max_length: int = 120, min_len
 @app.route("/nlp/generate_summary/<int:doc_id>", methods=["POST"])
 def generate_summary(doc_id):
     try:
-        # fetch file OID
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s", (doc_id,))
+        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s AND user_id = %s",
+                    (doc_id, session["user_id"]))
         row = cur.fetchone()
         cur.close()
         conn.close()
         if not row:
-            return jsonify({"error":"Document not found"}), 404
+            return jsonify({"error": "Document not found"}), 404
 
         file_oid, filename = row
-        # read large object
         conn = get_db_connection()
         lo = conn.lobject(file_oid, 'rb')
         file_bytes = lo.read()
         lo.close()
         conn.close()
 
-        # extract text
+        # Extract text (PDF or fallback)
         text = ""
         try:
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -894,25 +892,25 @@ def generate_summary(doc_id):
                     text += p.extract_text() or ""
         except Exception:
             try:
-                text = file_bytes.decode('utf-8', errors='ignore')
+                text = file_bytes.decode("utf-8", errors="ignore")
             except Exception:
                 text = ""
 
         if not text.strip():
-            return jsonify({"error":"No extractable text found."}), 400
+            return jsonify({"error": "No extractable text found"}), 400
 
-        # trim to avoid API limits (max 4000 chars)
+        # Trim long text
         snippet = text[:4000]
 
-        # summarize via Hugging Face API
+        # Summarize via HF API
         summary = call_hf_summarize(snippet)
 
-        # (optional) save summary to DB
+        # Save summary to DB
         try:
             conn = get_db_connection()
             cur = conn.cursor()
             cur.execute("UPDATE userdocuments SET summary = %s, summary_status = %s WHERE id = %s",
-                        (summary, 'done', doc_id))
+                        (summary, "done", doc_id))
             conn.commit()
             cur.close()
             conn.close()
@@ -920,13 +918,13 @@ def generate_summary(doc_id):
             pass
 
         return jsonify({"summary": summary}), 200
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
