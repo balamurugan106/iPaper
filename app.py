@@ -208,7 +208,7 @@ def dashboard():
 @app.route('/upload-document', methods=['POST'])
 def upload_document():
     if 'user_name' not in session:
-        return redirect('/login')
+        return jsonify({"success": False, "error": "Not logged in"}), 401
 
     file = request.files['file']
     if file and allowed_file(file.filename):
@@ -222,16 +222,16 @@ def upload_document():
         cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (session['user_name'],))
         user = cur.fetchone()
         if not user:
-            raise Exception("User not found")
+            return jsonify({"success": False, "error": "User not found"}), 404
         user_id, email, profession = user
 
-        # Create large object (LOB)
-        lo_oid = conn.lobject(0, 'wb').oid  # create new large object
+        # Save PDF as large object
+        lo_oid = conn.lobject(0, 'wb').oid
         lo = conn.lobject(lo_oid, 'wb')
         lo.write(file_data)
         lo.close()
 
-        # Store OID in the table
+        # Insert metadata
         cur.execute("""
             INSERT INTO userdocuments (user_id, name, email, profession, file_oid, document)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -241,7 +241,10 @@ def upload_document():
         cur.close()
         conn.close()
 
-    return redirect('/dashboard')
+        return jsonify({"success": True, "filename": filename})
+
+    return jsonify({"success": False, "error": "Invalid file"})
+
 
 
 
@@ -910,6 +913,7 @@ def generate_summary(doc_id):
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
 
 
