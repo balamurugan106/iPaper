@@ -10,8 +10,7 @@ from flask import send_from_directory
 from flask import Response
 from flask_session import Session
 import pdfplumber, io, requests
-from transformers import pipeline
-import functools
+
 import bcrypt
 import os
 import re
@@ -924,6 +923,7 @@ def generate_summary(doc_id):
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
