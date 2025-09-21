@@ -420,15 +420,15 @@
   </aside>
 
   <div id="bar-ls" class="resizer">
-    <button id="btnLS" class="collapse-btn">Â«</button>
+    <button id="btnLS" class="collapse-btn">«</button>
   </div>
   <aside id="us" class="sidebar us">
     <div class="pane-title">Upload Document</div>
     <div class="upload-card">
-      <form id="uploadForm" action="/upload-document" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" required/>
-        <button type="submit" class="btn brand" style="width:100%">Upload</button>
-      </form>
+      <form id="uploadForm" enctype="multipart/form-data">
+      <input type="file" name="file" required />
+      <button type="submit" class="btn brand" style="width:100%">Upload</button>
+    </form>
     </div>
     <div class="pane-title" style="margin-top:16px">Documents</div>
     <div id="current-category" class="muted" style="margin-bottom:6px">Showing: All Documents</div>
@@ -888,6 +888,7 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
 
 </body>
 </html>
+
 
 
 
