@@ -706,19 +706,13 @@ def get_documents():
 
     conn = get_db_connection()
     cur = conn.cursor()
-
-    cur.execute("""
-        SELECT id, document, summary
-        FROM userdocuments
-        WHERE name = %s
-    """, (session['user_name'],))
-
+    cur.execute("SELECT id, document, summary FROM userdocuments WHERE name = %s", (session['user_name'],))
     docs = cur.fetchall()
     cur.close()
     conn.close()
 
     return jsonify([
-        {"id": row[0], "filename": row[1], "summary": row[2]}
+        {"id": row[0], "filename": row[1], "summary": row[2] or ""}
         for row in docs if row[1] is not None
     ])
 
@@ -872,29 +866,48 @@ def generate_summary(doc_id):
     cur = conn.cursor()
     cur.execute("SELECT file_oid FROM userdocuments WHERE id = %s", (doc_id,))
     row = cur.fetchone()
-    cur.close()
-    conn.close()
-
     if not row:
         return jsonify({"error": "Document not found"}), 404
-
     file_oid = row[0]
+
     lo = conn.lobject(file_oid, 'rb')
     file_data = lo.read()
     lo.close()
+    cur.close()
+    conn.close()
 
-    # Here: call your Hugging Face summarizer
-    from transformers import pipeline
-    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-    text = extract_text_from_pdf(file_data)  # make sure you have a PDF extractor
-    summary = summarizer(text[:1000], max_length=200, min_length=50, do_sample=False)[0]['summary_text']
+    # ✅ Extract text
+    import fitz  # PyMuPDF
+    text = ""
+    with fitz.open(stream=file_data, filetype="pdf") as doc:
+        for page in doc:
+            text += page.get_text()
+
+    if not text.strip():
+        return jsonify({"error": "No text extracted from PDF"})
+
+    # ✅ Summarize (using Hugging Face API)
+    import os, requests
+    HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    api_url = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
+    payload = {"inputs": text[:1000]}
+    resp = requests.post(api_url, headers=headers, json=payload)
+    data = resp.json()
+
+    if isinstance(data, list) and len(data) > 0:
+        summary = data[0]["summary_text"]
+    else:
+        return jsonify({"error": "Summarization failed"}), 500
 
     return jsonify({"summary": summary})
 
 
 
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
 
 
