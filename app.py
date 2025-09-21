@@ -210,7 +210,10 @@ def upload_document():
     if 'user_name' not in session:
         return jsonify({"success": False, "error": "Not logged in"}), 401
 
-    file = request.files['file']
+    file = request.files.get('file')
+    if not file:
+        return jsonify({"success": False, "error": "No file uploaded"}), 400
+
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
         file_data = file.read()
@@ -218,20 +221,20 @@ def upload_document():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Get user info
+        # get user
         cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (session['user_name'],))
         user = cur.fetchone()
         if not user:
             return jsonify({"success": False, "error": "User not found"}), 404
         user_id, email, profession = user
 
-        # Save PDF as large object
+        # save as large object
         lo_oid = conn.lobject(0, 'wb').oid
         lo = conn.lobject(lo_oid, 'wb')
         lo.write(file_data)
         lo.close()
 
-        # Insert metadata
+        # insert record
         cur.execute("""
             INSERT INTO userdocuments (user_id, name, email, profession, file_oid, document)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -243,7 +246,7 @@ def upload_document():
 
         return jsonify({"success": True, "filename": filename})
 
-    return jsonify({"success": False, "error": "Invalid file"})
+    return jsonify({"success": False, "error": "Invalid file type"})
 
 
 
@@ -892,6 +895,7 @@ def generate_summary(doc_id):
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
 
 
