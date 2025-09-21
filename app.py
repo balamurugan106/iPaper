@@ -862,64 +862,37 @@ def call_hf_summarize(text: str, model: str=None, max_length: int = 120, min_len
 
 @app.route("/nlp/generate_summary/<int:doc_id>", methods=["POST"])
 def generate_summary(doc_id):
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s AND user_id = %s",
-                    (doc_id, session["user_id"]))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        if not row:
-            return jsonify({"error": "Document not found"}), 404
+    if "user_name" not in session:
+        return jsonify({"error": "Not logged in"}), 401
 
-        file_oid, filename = row
-        conn = get_db_connection()
-        lo = conn.lobject(file_oid, 'rb')
-        file_bytes = lo.read()
-        lo.close()
-        conn.close()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT file_oid FROM userdocuments WHERE id = %s", (doc_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
 
-        # Extract text (PDF or fallback)
-        text = ""
-        try:
-            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                for p in pdf.pages:
-                    text += p.extract_text() or ""
-        except Exception:
-            try:
-                text = file_bytes.decode("utf-8", errors="ignore")
-            except Exception:
-                text = ""
+    if not row:
+        return jsonify({"error": "Document not found"}), 404
 
-        if not text.strip():
-            return jsonify({"error": "No extractable text found"}), 400
+    file_oid = row[0]
+    lo = conn.lobject(file_oid, 'rb')
+    file_data = lo.read()
+    lo.close()
 
-        # Trim long text
-        snippet = text[:4000]
+    # Here: call your Hugging Face summarizer
+    from transformers import pipeline
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    text = extract_text_from_pdf(file_data)  # make sure you have a PDF extractor
+    summary = summarizer(text[:1000], max_length=200, min_length=50, do_sample=False)[0]['summary_text']
 
-        # Summarize via HF API
-        summary = call_hf_summarize(snippet)
+    return jsonify({"summary": summary})
 
-        # Save summary to DB
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("UPDATE userdocuments SET summary = %s, summary_status = %s WHERE id = %s",
-                        (summary, "done", doc_id))
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
-
-        return jsonify({"summary": summary}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
 
 
 
