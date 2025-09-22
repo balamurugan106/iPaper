@@ -883,11 +883,35 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
   }
 });
 
+document.addEventListener("DOMContentLoaded", () => {
+  const uploadForm = document.getElementById("uploadForm");
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(uploadForm);
+      const res = await fetch("/upload-document", {
+        method: "POST",
+        body: formData
+      });
+      const result = await res.json();
+      if (result.success) {
+        loadDocuments();
+      } else {
+        alert("Upload failed: " + result.error);
+      }
+    });
+  } else {
+    console.error("❌ uploadForm not found in DOM");
+  }
+});
+
+  
 </script>
 
 
 </body>
 </html>
+
 
 
 
