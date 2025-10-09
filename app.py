@@ -9,11 +9,14 @@ from flask import make_response
 from flask import send_from_directory
 from flask import Response
 from flask_session import Session
-import pdfplumber, io, requests
-
 import bcrypt
 import os
 import re
+from flask import url_for
+import uuid
+from datetime import datetime, timedelta
+import traceback
+
 
 
 load_dotenv()
@@ -43,13 +46,24 @@ def index():
         cur = conn.cursor()
         cur.execute("SELECT type, path, caption FROM media")
         media_items = cur.fetchall()
-        cur.close()
-        conn.close()
+        
 
         images = [item for item in media_items if item[0] == 'image']
         videos = [item for item in media_items if item[0] == 'video']
+
+        cur.execute("""
+        SELECT name, profession, rating, comment, createdat
+        FROM userfeedback
+        WHERE rating >= 3
+        ORDER BY CreatedAt DESC
+        LIMIT 3
+        """)
+        feedbacks = cur.fetchall()
+        cur.close()
+        conn.close()
+
         
-        return render_template('index.html', images=images, videos=videos)
+        return render_template('index.html', images=images, videos=videos, feedbacks=feedbacks)
     except Exception as e:
         return f"Error loading media: {e}"
 
@@ -93,8 +107,11 @@ def register():
                 return render_template('register.html')
 
             hashed_password = generate_password_hash(password)
-            cur.execute("INSERT INTO users (name, email, password, gender, age, profession) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (name, email, hashed_password, gender, age, profession))
+            cur.execute("""
+            INSERT INTO users (name, email, passwordhash, gender, age, profession, membership)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (name, email, hashed_password, gender, age, profession, 'Free'))
+
             conn.commit()
             cur.close()
             conn.close()
@@ -111,34 +128,36 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form['email']
-        password = request.form['password']
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
 
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
-            user = cur.fetchone()
+            cur.execute("""
+                SELECT userid, name, email, passwordhash, profession, membership
+                FROM users
+                WHERE email = %s
+            """, (email,))
+            row = cur.fetchone()
             cur.close()
             conn.close()
-
-            if not user:
-                flash("Email is not registered.", 'error')
+            if not row:
+                flash("Email not registered.", "error")
                 return render_template('login.html')
 
-            if not check_password_hash(user[3], password):
-                flash("Type in the correct password.", 'error')
+            userid, name, email_db, pw_hash, profession, membership = row
+            if not check_password_hash(pw_hash, password):
+                flash("Incorrect password.", "error")
                 return render_template('login.html')
 
-            session['user_name'] = user[1]
-            session['user_id'] = user[0] 
-            session['profession'] = user[6]
-            
+            session['user_id'] = userid
+            session['user_name'] = name
+            session['profession'] = profession
+            session['membership'] = membership or 'Free'
             return redirect('/dashboard')
-
-
         except Exception as e:
-            flash("Login failed: " + str(e), 'error')
+            flash(f"Login failed: {e}", "error")
             return render_template('login.html')
 
     return render_template('login.html')
@@ -156,158 +175,160 @@ def logout():
 
 @app.route('/dashboard')
 def dashboard():
-    if 'user_name' not in session:
+    if 'user_id' not in session:
         return redirect('/login')
 
-    name = session.get('user_name')
+    user_id = session['user_id']
+
     try:
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Get user ID and profession
-        cur.execute("SELECT id, profession FROM users WHERE name = %s", (name,))
-        user = cur.fetchone()
-        if not user:
-            flash("User not found")
-            return redirect('/login')
-
-        user_id, profession = user
-        session['profession'] = profession
-
-        # Get latest membership
+        # --- 🔹 Auto-reset membership if expired ---
         cur.execute("""
-            SELECT membership FROM userdocuments 
-            WHERE user_id = %s AND membership IS NOT NULL
-            ORDER BY id DESC LIMIT 1
+            SELECT enddate 
+            FROM payments
+            WHERE userid = %s
+            ORDER BY enddate DESC
+            LIMIT 1
         """, (user_id,))
-        membership_record = cur.fetchone()
-        latest_membership = membership_record[0] if membership_record and membership_record[0] else "Free"
+        row = cur.fetchone()
 
-        # Get user documents
-        cur.execute("SELECT id, document FROM userdocuments WHERE user_id = %s AND document IS NOT NULL", (user_id,))
-        documents = cur.fetchall()
+        if row and row[0]:
+            from datetime import datetime
+            if row[0] < datetime.now():
+                # Expired — reset to Free plan
+                cur.execute("UPDATE users SET membership = 'Free' WHERE userid = %s", (user_id,))
+                conn.commit()
+                session['membership'] = 'Free'
 
-        # Save membership in session
-        session['membership'] = latest_membership
+        # --- 🔹 Load user files ---
+        cur.execute("""
+            SELECT f.fileid, f.filename, f.folderid, fo.foldername
+            FROM files f
+            LEFT JOIN folders fo ON f.folderid = fo.folderid
+            WHERE f.userid = %s
+            ORDER BY f.fileid DESC
+        """, (user_id,))
+        files = cur.fetchall()
+        documents = [
+            {"id": r[0], "filename": r[1], "category": r[2], "category_name": r[3]}
+            for r in files
+        ]
+
+        # --- 🔹 Fetch user membership (after possible reset) ---
+        cur.execute("SELECT membership FROM users WHERE userid = %s", (user_id,))
+        row = cur.fetchone()
+        membership = row[0] if row and row[0] else 'Free'
+        session['membership'] = membership
 
         cur.close()
         conn.close()
 
-        print("DEBUG: latest_membership =", latest_membership)
         return render_template(
             'dashboard.html',
-            name=name,
-            profession=profession,
+            name=session.get('user_name'),
+            profession=session.get('profession'),
             documents=documents,
-            latest_membership=latest_membership
+            latest_membership=membership
         )
+
     except Exception as e:
-        return f"Dashboard Error: {e}"
+        return f"Dashboard error: {e}"
+
 
 
 @app.route('/upload-document', methods=['POST'])
 def upload_document():
-    if 'user_name' not in session:
-        return jsonify({"success": False, "error": "Not logged in"}), 401
+    if 'user_id' not in session:
+        return redirect('/login')
 
-    file = request.files.get('file')
-    if not file:
-        return jsonify({"success": False, "error": "No file uploaded"}), 400
+    # allow multiple files
+    files = request.files.getlist('file')
+    folder_id_raw = request.form.get('folder_id')  # optional
+    folder_id = None
+    try:
+        if folder_id_raw:
+            folder_id = int(folder_id_raw)
+    except Exception:
+        folder_id = None
 
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_data = file.read()
+    if not files or len(files) == 0 or files[0].filename == '':
+        flash("No file selected", "error")
+        return redirect('/dashboard')
 
+    try:
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # get user
-        cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (session['user_name'],))
-        user = cur.fetchone()
-        if not user:
-            return jsonify({"success": False, "error": "User not found"}), 404
-        user_id, email, profession = user
-
-        # save as large object
-        lo_oid = conn.lobject(0, 'wb').oid
-        lo = conn.lobject(lo_oid, 'wb')
-        lo.write(file_data)
-        lo.close()
-
-        # insert record
-        cur.execute("""
-            INSERT INTO userdocuments (user_id, name, email, profession, file_oid, document)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (user_id, session['user_name'], email, profession, lo_oid, filename))
-
+        for file in files:
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                data = file.read()
+                cur.execute("""
+                    INSERT INTO files (userid, folderid, filename, attachment)
+                    VALUES (%s, %s, %s, %s)
+                """, (session['user_id'], folder_id, filename, psycopg2.Binary(data)))
         conn.commit()
         cur.close()
         conn.close()
+        flash("Files uploaded", "success")
+    except Exception as e:
+        flash("Upload failed: " + str(e), "error")
 
-        return jsonify({"success": True, "filename": filename})
-
-    return jsonify({"success": False, "error": "Invalid file type"})
-
-
-
-
+    return redirect('/dashboard')
+    
 
 @app.route('/view-document/<int:doc_id>')
 def view_document(doc_id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT file_oid, document FROM userdocuments WHERE id = %s", (doc_id,))
-        result = cur.fetchone()
+        cur.execute("SELECT attachment, filename FROM files WHERE fileid = %s", (doc_id,))
+        row = cur.fetchone()
         cur.close()
         conn.close()
+        if not row:
+            return "Not found", 404
+        data, filename = row
+        bytes_data = data.tobytes() if hasattr(data, 'tobytes') else data
+        response = make_response(bytes_data)
+        # infer content-type
+        name_lower = (filename or '').lower()
+        if name_lower.endswith('.pdf'):
+            ctype = 'application/pdf'
+        elif name_lower.endswith('.docx'):
+            ctype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        elif name_lower.endswith('.doc'):
+            ctype = 'application/msword'
+        else:
+            ctype = 'application/octet-stream'
 
-        if not result or result[0] is None:
-            return "Document not found", 404
-
-        file_oid, filename = result
-
-        conn = get_db_connection()
-        lo = conn.lobject(file_oid, 'rb')
-        file_data = lo.read()
-        lo.close()
-        conn.close()
-
-        response = make_response(file_data)
-        response.headers.set('Content-Type', 'application/pdf')
+        response.headers.set('Content-Type', ctype)
         response.headers.set('Content-Disposition', 'inline', filename=filename)
         return response
-
     except Exception as e:
         return f"Error displaying document: {e}", 500
 
 
 
 
-
-@app.route('/delete-document/<int:doc_id>')
+@app.route('/delete-document/<int:doc_id>', methods=['GET', 'POST'])
 def delete_document(doc_id):
-    if 'user_name' not in session:
+    if 'user_id' not in session:
         return redirect('/login')
-
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT document FROM userdocuments WHERE id = %s", (doc_id,))
-        result = cur.fetchone()
-        if result:
-            filename = result[0]
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            if os.path.exists(filepath):
-                os.remove(filepath)
-
-        cur.execute("DELETE FROM userdocuments WHERE id = %s", (doc_id,))
-        conn.commit()
+        # ensure this belongs to user
+        cur.execute("SELECT fileid FROM files WHERE fileid = %s AND userid = %s", (doc_id, session['user_id']))
+        if cur.fetchone():
+            cur.execute("DELETE FROM files WHERE fileid = %s AND userid = %s", (doc_id, session['user_id']))
+            conn.commit()
+            flash("Document deleted", "success")
         cur.close()
         conn.close()
     except Exception as e:
-        flash("Error deleting document: " + str(e), "error")
-
+        flash("Delete failed: " + str(e), "error")
     return redirect('/dashboard')
 
 
@@ -362,23 +383,55 @@ def forgot_password():
 
 @app.route('/admin-login', methods=['GET', 'POST'])
 def admin_login():
+    
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-            session['admin_logged_in'] = True
-            return redirect('/admin')
-        else:
-            error = 'Invalid username or password.'
-            return render_template('admin_login.html')
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        conn = cur = None
+
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT adminid, username, passwordhash
+                FROM admindatabase
+                WHERE username = %s
+            """, (username,))
+            row = cur.fetchone()
+
+            if row:
+                adminid, uname, pw_hash = row
+                if pw_hash and check_password_hash(pw_hash, password):
+                    session['admin_logged_in'] = True
+                    session['admin_id'] = adminid
+                    session['admin_username'] = uname
+                    flash("Welcome, Admin!", "success")
+                    return redirect('/admin')
+                else:
+                    flash("❌ Incorrect password.", "error")
+            else:
+                flash("⚠️ Admin not found.", "error")
+
+        except Exception as e:
+            print("ERROR:", e)
+            flash(f"Admin login failed: {e}", "error")
+        finally:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
+
     return render_template('admin_login.html')
+
+
+    
 
 @app.route('/admin')
 def admin():
     if not session.get('admin_logged_in'):
         return redirect('/admin-login')
-    return render_template('admin.html', users=[])  # Only show buttons, not users yet
-
+    return render_template('admin.html')
+    
 
 @app.route('/admin/users')
 def admin_users():
@@ -387,7 +440,7 @@ def admin_users():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT id, name, email, gender, age, profession FROM users")
+        cur.execute("SELECT userid, name, email, gender, age, profession FROM users")
         users = cur.fetchall()
         cur.close()
         conn.close()
@@ -404,7 +457,7 @@ def delete_user(user_id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        cur.execute("DELETE FROM users WHERE userid = %s", (user_id,))
         conn.commit()
         cur.close()
         conn.close()
@@ -416,9 +469,18 @@ def delete_user(user_id):
 
 @app.route('/membership')
 def membership():
-    if 'user_name' not in session:
+    if 'user_id' not in session:
         return redirect('/login')
-    return render_template("payment.html")
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT planid, code, name, pricecents, currency, features FROM plans ORDER BY planid")
+        plans = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        plans = []
+    return render_template('payment.html', plans=plans)
 
 
 
@@ -426,150 +488,156 @@ def membership():
 
 @app.route('/select_plan', methods=['POST'])
 def select_plan():
-    if 'user_name' not in session:
+    if 'user_id' not in session:
+        return redirect('/login')
+    plan_id = request.form.get('plan_id')
+    if not plan_id:
+        flash("No plan selected", "error")
+        return redirect('/membership')
+    session['selected_plan_id'] = int(plan_id)
+    return redirect('/payment')
+
+@app.route('/payment_success')
+def payment_success():
+    if 'last_payment_plan' not in session or 'user_id' not in session:
+        return redirect('/dashboard')
+
+    selected_plan = session.pop('last_payment_plan')
+    user_id = session['user_id']
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT amount, startdate, enddate
+            FROM payments
+            WHERE userid = %s AND planname = %s
+            ORDER BY paymentid DESC
+            LIMIT 1
+        """, (user_id, selected_plan))
+        payment = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if payment:
+            amount, start_date, end_date = payment
+            amount_display = f"${amount}/month"
+            next_renewal = end_date.strftime("%d/%m/%Y")
+        else:
+            amount_display = "$0"
+            next_renewal = "N/A"
+
+        return render_template(
+            'payment_success.html',
+            selected_plan=selected_plan,
+            amount=amount_display,
+            next_renewal=next_renewal
+        )
+
+    except Exception as e:
+        print("Error loading payment success:", e)
+        return redirect('/dashboard')
+
+
+@app.route('/payment_process', methods=['POST'])
+def payment_process():
+    # Ensure user is logged in
+    if 'user_id' not in session:
+        flash("Please log in to continue.", "error")
         return redirect('/login')
 
-    plan = request.form.get('plan')
-    if not plan:
-        return "No plan selected", 400
-
-    profession = session.get('profession', '')
-    
-    # Block Ultra from downgrading
-    if profession == 'Professional Plus' and plan == 'Professional':
-        flash("As a Ultra, you cannot subscribe to the Professional plan.", "error")
+    selected_plan = request.form.get('selected_plan')
+    if not selected_plan:
+        flash("Please select a plan.", "error")
         return redirect('/membership')
 
-    session['selected_plan'] = plan
-    return redirect('/payment')
+    # Collect form data
+    first_name = request.form.get('first_name', '').strip()
+    last_name = request.form.get('last_name', '').strip()
+    card_number = request.form.get('card_number', '').replace(' ', '').strip()
+    card_expiry = request.form.get('card_expiry', '').strip()
+    card_cvv = request.form.get('card_cvv', '').strip()
+
+    # Basic validation
+    if not all([first_name, last_name, card_number, card_expiry, card_cvv]):
+        flash("All payment fields are required.", "error")
+        return redirect('/membership')
+
+    # Parse expiry (MM/YY)
+    try:
+        mm, yy = card_expiry.split('/')
+        exp_month = int(mm)
+        exp_year = int(yy) if len(yy) == 4 else 2000 + int(yy)
+    except Exception:
+        flash("Invalid expiry date format. Use MM/YY.", "error")
+        return redirect('/membership')
+
+    # Determine plan pricing
+    if selected_plan == 'Professional':
+        amount = 9.99
+    elif selected_plan == 'Professional Plus':
+        amount = 19.99
+    else:
+        amount = 0.00
+
+    # Hash sensitive details
+    hashed_card_number = generate_password_hash(card_number)
+    hashed_expiry = generate_password_hash(card_expiry)
+    hashed_cvv = generate_password_hash(card_cvv)
+
+    user_id = session['user_id']
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Insert payment record
+        cur.execute("""
+            INSERT INTO Payments (userid, planname, amount, currency, cardnumber, cardexpiry, cardcvv, status, startdate, enddate)
+            VALUES (%s, %s, %s, 'USD', %s, %s, %s, 'success', NOW(), NOW() + interval '30 days')
+        """, (
+            user_id, selected_plan, amount,
+            hashed_card_number, hashed_expiry, hashed_cvv
+        ))
+
+        # Update user's membership
+        cur.execute("UPDATE Users SET membership = %s WHERE userid = %s", (selected_plan, user_id))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        session['last_payment_plan'] = selected_plan
+        flash("Payment successful!", "success")
+        return redirect(url_for('payment_success'))
+
+    except Exception as e:
+        print("Payment Error:", e)
+        flash(f"Payment failed: {str(e)}", "error")
+        return redirect('/membership')
+
 
 
 
 
 @app.route('/payment')
-def payment():
+def payment_page():
     if 'user_id' not in session:
         return redirect('/login')
-    if 'selected_plan' not in session:
-        return redirect('/membership')  
-
-    plan = session['selected_plan']
+    plan_id = session.get('selected_plan_id')
+    if not plan_id:
+        return redirect('/membership')
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT planid, code, name, pricecents, currency FROM plans WHERE planid = %s", (plan_id,))
+        plan = cur.fetchone()
+        cur.close()
+        conn.close()
+    except Exception:
+        plan = None
     return render_template('payment.html', plan=plan)
 
-
-@app.route('/payment_success', methods=['POST'])
-def payment_success():
-    if 'user_name' not in session:
-        return redirect('/login')
-
-    selected_plan = session.get('selected_plan')
-    name = session.get('user_name')
-
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        # Get user ID
-        cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (name,))
-        user_data = cur.fetchone()
-
-        if not user_data:
-            return "User not found"
-
-        user_id, email, profession = user_data
-
-        # Insert membership (no file upload)
-        cur.execute("""
-            INSERT INTO userdocuments (user_id, name, email, profession, membership)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (user_id, name, email, profession, selected_plan))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        session['membership'] = selected_plan
-
-        return redirect('/dashboard')
-    except Exception as e:
-        return f"Error during payment: {e}"
-
-
-
-@app.route('/payment_process', methods=['POST'])
-def payment_process():
-    selected_plan = request.form.get('selected_plan')
-    if 'user_name' not in session or not selected_plan:
-        return redirect('/login')
-
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-
-        # Get user details
-        cur.execute("SELECT id, email, profession FROM users WHERE name = %s", (session['user_name'],))
-        user = cur.fetchone()
-        user_id, email, profession = user
-
-        # Only allow valid plan values
-        if selected_plan not in ['Professional', 'Professional Plus']:
-            return redirect('/membership')
-
-        # Check for existing membership
-        cur.execute("SELECT id FROM userdocuments WHERE user_id = %s", (user_id,))
-        existing_doc = cur.fetchone()
-
-        if existing_doc:
-            cur.execute("""
-                UPDATE userdocuments 
-                SET membership = %s 
-                WHERE user_id = %s
-            """, (selected_plan, user_id))
-        else:
-            cur.execute("""
-                INSERT INTO userdocuments (user_id, name, email, profession, membership)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (user_id, session['user_name'], email, profession, selected_plan))
-
-        # ✅ Insert card details in SAME connection
-        first_name = request.form.get('first_name')
-        last_name = request.form.get('last_name')
-        card_number = request.form.get('card_number')
-        card_expiry = request.form.get('card_expiry')
-        card_cvv = request.form.get('card_cvv')
-
-        if not all([first_name, last_name, card_number, card_expiry, card_cvv]):
-            flash("All card fields are required", "error")
-            return redirect('/membership')
-
-        hashed_card_number = bcrypt.hashpw(card_number.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        hashed_card_expiry = bcrypt.hashpw(card_expiry.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        hashed_card_cvv = bcrypt.hashpw(card_cvv.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
-        cur.execute("""
-            INSERT INTO CardDetails (user_id, first_name, last_name, card_number, card_expiry, card_cvv)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (
-            user_id,
-            first_name,
-            last_name,
-            hashed_card_number,
-            hashed_card_expiry,
-            hashed_card_cvv
-        ))
-
-        # ✅ Commit once after both inserts/updates
-        conn.commit()
-
-        # Close connection
-        cur.close()
-        conn.close()
-
-        # Update session
-        session['membership'] = selected_plan
-        return render_template("payment_success.html", selected_plan=selected_plan)
-
-    except Exception as e:
-        return f"Payment processing failed: {e}"
 
 
 
@@ -640,10 +708,15 @@ def inject_membership():
 
 @app.route('/admin/templates')
 def manage_templates():
+    if not session.get('admin_logged_in'):
+        return redirect('/admin-login')
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM UserTemplate ORDER BY id DESC")
+        cur.execute("""
+            SELECT * FROM uploadsummarytemplates
+            ORDER BY summarytemplateid DESC
+        """)
         templates = cur.fetchall()
         cur.close()
         conn.close()
@@ -655,12 +728,18 @@ def manage_templates():
 
 @app.route('/create_template', methods=['POST'])
 def create_template():
+    if not session.get('admin_logged_in'):
+        return redirect('/admin-login')
     name = request.form.get('template_name')
     prompt = request.form.get('template_prompt')
+    category = request.form.get('template_category') or None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("INSERT INTO UserTemplate (template_name, template_prompt) VALUES (%s, %s)", (name, prompt))
+        cur.execute("""
+            INSERT INTO uploadsummarytemplates (templatename, promptinstructions, category, createdby)
+            VALUES (%s, %s, %s, %s)
+        """, (name, prompt, category, session.get('user_id')))
         conn.commit()
         cur.close()
         conn.close()
@@ -669,29 +748,40 @@ def create_template():
         return f"Error creating template: {e}"
 
 
+
 @app.route('/edit_template/<int:id>', methods=['POST'])
 def edit_template(id):
+    if not session.get('admin_logged_in'):
+        return redirect('/admin-login')
     name = request.form.get('edit_template_name')
     prompt = request.form.get('edit_template_prompt')
+    category = request.form.get('edit_template_category') or None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE UserTemplate SET template_name = %s, template_prompt = %s WHERE id = %s", (name, prompt, id))
+        cur.execute("""
+            UPDATE uploadsummarytemplates
+            SET templatename = %s, promptinstructions = %s, category = %s
+            WHERE summarytemplateid = %s
+        """, (name, prompt, category, id))
         conn.commit()
         cur.close()
         conn.close()
         return redirect('/admin/templates')
     except Exception as e:
         return f"Error editing template: {e}"
+        
 
 
 
 @app.route('/delete_template/<int:id>', methods=['POST'])
 def delete_template(id):
+    if not session.get('admin_logged_in'):
+        return redirect('/admin-login')
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("DELETE FROM UserTemplate WHERE id = %s", (id,))
+        cur.execute("DELETE FROM uploadsummarytemplates WHERE summarytemplateid = %s", (id,))
         conn.commit()
         cur.close()
         conn.close()
@@ -699,99 +789,114 @@ def delete_template(id):
     except Exception as e:
         return f"Error deleting template: {e}"
 
-@app.route('/get-documents')
+
+
+@app.route('/get-documents', methods=['GET'])
 def get_documents():
-    if 'user_name' not in session:
+    if 'user_id' not in session:
+        return jsonify([])
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT f.fileid, f.filename, f.folderid, fo.foldername
+            FROM files f
+            LEFT JOIN folders fo ON f.folderid = fo.folderid
+            WHERE f.userid = %s AND f.filename IS NOT NULL
+            ORDER BY f.fileid DESC
+        """, (session['user_id'],))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        docs = [
+            {"id": r[0], "filename": r[1], "category": r[2], "category_name": r[3]}
+            for r in rows if r[1]
+        ]
+        return jsonify(docs)
+    except Exception as e:
         return jsonify([])
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, document, summary FROM userdocuments WHERE name = %s", (session['user_name'],))
-    docs = cur.fetchall()
-    cur.close()
-    conn.close()
 
-    return jsonify([
-        {"id": row[0], "filename": row[1], "summary": row[2] or ""}
-        for row in docs if row[1] is not None
-    ])
-
-
-
-# Add category
-@app.route("/add_category", methods=["POST"])
+@app.route('/add_category', methods=['POST'])
 def add_category():
-    if "user_id" not in session:
+    if 'user_id' not in session:
         return jsonify({"success": False, "error": "Not logged in"}), 401
-
     data = request.get_json()
-    category_name = data.get("name")
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({"success": False, "error": "Invalid name"}), 400
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO folders (userid, foldername) VALUES (%s, %s) RETURNING folderid",
+                    (session['user_id'], name))
+        folderid = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"success": True, "id": folderid, "name": name})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO usercategories (user_id, name) VALUES (%s, %s) RETURNING id",
-                (session["user_id"], category_name))
-    category_id = cur.fetchone()[0]
-    conn.commit()
-    conn.close()
 
-    return jsonify({"success": True, "id": category_id, "name": category_name})
-
-
-
-@app.route("/update-document-category", methods=["POST"])
+@app.route('/update-document-category', methods=['POST'])
 def update_document_category():
-    if "user_id" not in session:
+    if 'user_id' not in session:
         return jsonify({"success": False, "error": "Not logged in"}), 401
-
     try:
         data = request.get_json()
-        document_id = data.get("documentId")
-        category = data.get("category")  # can be None
-
+        document_id = data.get('documentId')
+        category = data.get('category')  # may be None or 'all' or folder id
         if not document_id:
             return jsonify({"success": False, "error": "Missing documentId"}), 400
 
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # Update document's category
-        cur.execute("""
-            UPDATE userdocuments
-            SET category = %s
-            WHERE id = %s AND user_id = %s
-        """, (category, document_id, session["user_id"]))
-
+        if category in [None, 'all', 'null', 'None']:
+            cur.execute("UPDATE files SET folderid = NULL WHERE fileid = %s AND userid = %s", (document_id, session['user_id']))
+        else:
+            try:
+                folderid = int(category)
+                cur.execute("UPDATE files SET folderid = %s WHERE fileid = %s AND userid = %s", (folderid, document_id, session['user_id']))
+            except Exception:
+                return jsonify({"success": False, "error": "Invalid folder id"}), 400
         conn.commit()
         cur.close()
         conn.close()
-
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/get_categories", methods=["GET"])
+
+@app.route('/get_categories', methods=['GET'])
 def get_categories():
-    if "user_id" not in session:
+    if 'user_id' not in session:
         return jsonify([])
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT folderid, foldername FROM folders WHERE userid = %s ORDER BY folderid DESC",
+                    (session['user_id'],))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        cats = [{"id": r[0], "name": r[1]} for r in rows]
+        return jsonify(cats)
+    except Exception as e:
+        return jsonify([])
+        
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name FROM usercategories WHERE user_id = %s ORDER BY id DESC", (session["user_id"],))
-    categories = [{"id": row[0], "name": row[1]} for row in cur.fetchall()]
-    cur.close()
-    conn.close()
-    return jsonify(categories)
-
-@app.route("/delete_category/<int:category_id>", methods=["DELETE"])
+@app.route('/delete_category/<int:category_id>', methods=['DELETE'])
 def delete_category(category_id):
-    if "user_id" not in session:
+    if 'user_id' not in session:
         return jsonify({"success": False, "error": "Not logged in"}), 401
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("DELETE FROM usercategories WHERE id = %s AND user_id = %s", (category_id, session["user_id"]))
+        # only delete if owner
+        cur.execute("UPDATE files SET folderid = NULL WHERE folderid = %s AND userid = %s", (category_id, session['user_id']))
+        cur.execute("DELETE FROM folders WHERE folderid = %s AND userid = %s", (category_id, session['user_id']))
         conn.commit()
         cur.close()
         conn.close()
@@ -800,113 +905,102 @@ def delete_category(category_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+
 @app.route('/feedback', methods=['GET', 'POST'])
 def feedback():
-    if 'user_name' not in session:
+    if 'user_id' not in session:
         return redirect('/login')
-
     if request.method == 'POST':
-        name = request.form.get("name")
-        profession = request.form.get("profession")
-        feedback_type = request.form.get("feedback_type")
-        feedback_text = request.form.get("feedback_text")
-        rating = request.form.get("rating")
-
+        name = request.form.get('name')
+        profession = request.form.get('profession')
+        feedback_type = request.form.get('feedback_type')
+        feedback_text = request.form.get('feedback_text')
+        rating = request.form.get('rating')
         try:
             conn = get_db_connection()
             cur = conn.cursor()
-
-            cur.execute("SELECT id FROM users WHERE name = %s", (session['user_name'],))
-            user = cur.fetchone()
-            user_id = user[0] if user else None
-
             cur.execute("""
-                INSERT INTO feedback (user_id, user_name, profession, feedback_type, feedback_text, rating)
+                INSERT INTO userfeedback (userid, name, profession, feedbacktype, comment, rating)
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (user_id, name, profession, feedback_type, feedback_text, rating))
-
+            """, (session['user_id'], name, profession, feedback_type, feedback_text, rating))
             conn.commit()
             cur.close()
             conn.close()
-
-            flash("✅ Thank you for your feedback!", "success")
+            flash("Thanks for your feedback!", "success")
             return redirect('/dashboard')
-
         except Exception as e:
-            flash(f"Error saving feedback: {e}", "error")
-            return render_template("feedback.html")
+            flash("Feedback save failed: " + str(e), "error")
+            return render_template('feedback.html')
+    return render_template('feedback.html')
 
-    return render_template("feedback.html")
-
-
-def call_hf_summarize(text: str, model: str=None, max_length: int = 120, min_length: int = 30):
-    """Call Hugging Face Inference API and return summary string."""
-    token = os.getenv("HUGGINGFACE_API_TOKEN")
-    if not token:
-        raise RuntimeError("HUGGINGFACE_API_TOKEN not set")
-    model = model or os.getenv("HUGGINGFACE_MODEL", "sshleifer/distilbart-cnn-12-6")
-    url = f"https://api-inference.huggingface.co/models/{model}"
-    headers = {"Authorization": f"Bearer {token}"}
-    payload = {"inputs": text, "parameters": {"max_length": max_length, "min_length": min_length}}
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, list) and "summary_text" in data[0]:
-        return data[0]["summary_text"]
-    if isinstance(data, dict) and "error" in data:
-        raise RuntimeError("HF error: " + data["error"])
-    return str(data)
-
-@app.route("/nlp/generate_summary/<int:doc_id>", methods=["POST"])
-def generate_summary(doc_id):
-    if "user_name" not in session:
-        return jsonify({"error": "Not logged in"}), 401
-
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT file_oid FROM userdocuments WHERE id = %s", (doc_id,))
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Document not found"}), 404
-    file_oid = row[0]
-
-    lo = conn.lobject(file_oid, 'rb')
-    file_data = lo.read()
-    lo.close()
-    cur.close()
-    conn.close()
-
-    # ✅ Extract text
-    import fitz  # PyMuPDF
-    text = ""
-    with fitz.open(stream=file_data, filetype="pdf") as doc:
-        for page in doc:
-            text += page.get_text()
-
-    if not text.strip():
-        return jsonify({"error": "No text extracted from PDF"})
-
-    # ✅ Summarize (using Hugging Face API)
-    import os, requests
-    HF_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    api_url = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
-    payload = {"inputs": text[:1000]}
-    resp = requests.post(api_url, headers=headers, json=payload)
-    data = resp.json()
-
-    if isinstance(data, list) and len(data) > 0:
-        summary = data[0]["summary_text"]
-    else:
-        return jsonify({"error": "Summarization failed"}), 500
-
-    return jsonify({"summary": summary})
 
 
 
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    app.run(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
