@@ -2,10 +2,10 @@
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
-import nltk
+import re
 import io
 
-nltk.download('punkt', quiet=True)
+
 
 # --- Extract Text from PDF ---
 def extract_text_from_pdf(source):
@@ -40,16 +40,11 @@ def extract_text_from_pdf(source):
     
 
 # --- Simple Extractive Summarizer ---
-def summarize_text(text, num_sentences=3):
-    from nltk.tokenize import sent_tokenize
-    sentences = sent_tokenize(text)
-    if len(sentences) <= num_sentences:
-        return text
-    vectorizer = TfidfVectorizer(stop_words='english')
-    X = vectorizer.fit_transform(sentences)
-    scores = X.sum(axis=1).A1
-    ranked = [sentences[i] for i in scores.argsort()[::-1]]
-    return " ".join(ranked[:num_sentences])
+def simple_sentence_tokenize(text):
+    # Splits text into sentences using punctuation
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    return [s for s in sentences if len(s) > 10]  # remove very short fragments
+
 
 # --- Topic Clustering (KMeans) ---
 def cluster_topics(texts, n_clusters=3):
@@ -62,4 +57,5 @@ def cluster_topics(texts, n_clusters=3):
     labels = kmeans.labels_
     topics = [f"Topic {i+1}" for i in labels]
     return topics
+
 
