@@ -989,10 +989,24 @@ def generate_summaries():
         print("Error:", e)
         return jsonify({"error": str(e)}), 500
 
-
+@app.route('/get-summaries')
+def get_summaries():
+    conn = psycopg2.connect(
+        host="your_host",
+        database="your_db",
+        user="your_user",
+        password="your_password"
+    )
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT summary, topic FROM summarygenerate ORDER BY createdat DESC")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify(rows)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
