@@ -465,6 +465,19 @@
       font-weight: 500;
       margin-left: 10px;
     }   
+
+    .document-item.selected {
+  border-left: 4px solid var(--brand);
+  background: #eaf2ff;
+}
+#summary-output {
+  background: #ffffff;
+  border: 1px solid #e8f4f8;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 120px;
+}
+
   </style>
 </head>
 <body>
@@ -513,10 +526,11 @@
       </div>
     </div>
     <h1>Welcome back, {{ name }}</h1>
-    <div id="summary-section">
-  <h3>Generated Summaries</h3>
-  <div id="summaries"></div>
+    <div id="summary-section" class="main-content" style="margin-top:20px;">
+  <div class="section-title">Generated Summary</div>
+  <div id="summary-output"><p class="muted">No summary yet. Select a document from the list and click Generate.</p></div>
 </div>
+
   </main>
 </div>
 
@@ -903,6 +917,7 @@ window.onload = loadSummaries;
 </script>
 </body>
 </html>
+
 
 
 
