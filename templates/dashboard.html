@@ -883,7 +883,41 @@
     const templateModal = document.getElementById('templateSelectorModal'); 
     const generateButton = document.querySelector('.generate-button');
     
-    if (generateBtn) generateBtn.onclick = () => templateModal.classList.remove('hidden');
+    if (generateBtn) {
+  generateBtn.onclick = async () => {
+    const out = document.getElementById('summary-output');
+    const fileId = window.selectedDocId;
+    if (!fileId) {
+      out.innerHTML = '<p style="color:orange;">Please select a document on the left, then click Generate.</p>';
+      return;
+    }
+    out.innerHTML = '<p><em>Generating summary…</em></p>';
+
+    try {
+      const res = await fetch('/generate-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: fileId })
+      });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        out.innerHTML = `
+          <h4 style="margin-top:0">${data.filename}</h4>
+          <p><strong>Summary:</strong> ${data.summary}</p>
+          <p><strong>Topic / Keywords:</strong> ${data.topic}</p>
+        `;
+        // reload documents list to reflect any DB changes
+        loadDocuments();
+      } else {
+        out.innerHTML = '<p style="color:red;">Error generating summary: ' + (data.error || data.detail || 'unknown') + '</p>';
+      }
+    } catch (err) {
+      console.error(err);
+      out.innerHTML = '<p style="color:red;">Unexpected error while generating summary. See server logs.</p>';
+    }
+  };
+}
+
     if (templateModal) templateModal.onclick = (e) => { 
       if (e.target === templateModal) templateModal.classList.add('hidden'); 
     };
@@ -926,6 +960,7 @@ window.onload = loadSummaries;
 </script>
 </body>
 </html>
+
 
 
 
