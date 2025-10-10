@@ -12,15 +12,10 @@ import psycopg2
 from datetime import datetime, timedelta
 import traceback
 import io
+import json
+
 
 from nlp_utils import extract_text_from_pdf, summarize_text, cluster_topics
-
-import nltk
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
-
 
 
 load_dotenv()
@@ -39,9 +34,16 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-    
+
 def get_db_connection():
-    return psycopg2.connect(os.getenv("DATABASE_URL"), sslmode="require")
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL environment variable not set.")
+    # If sslmode not provided, require SSL (Render uses SSL)
+    if 'sslmode' not in db_url:
+        return psycopg2.connect(db_url, sslmode='require')
+    return psycopg2.connect(db_url)
+
 
 @app.route('/')
 def index():
@@ -937,110 +939,83 @@ def feedback():
             return render_template('feedback.html')
     return render_template('feedback.html')
 
-@app.route('/generate-summaries', methods=['POST'])
-def generate_summaries():
+@app.route('/generate-summary', methods=['POST'])
+def generate_summary():
     
     try:
+        payload = request.get_json(force=True)
+        file_id = payload.get('file_id')
+        if not file_id:
+            return jsonify({"error": "file_id is required"}), 400
+
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-
-        # Fetch files (only those with an attachment)
-        cur.execute("SELECT fileid, userid, filename, attachment FROM files ORDER BY fileid DESC;")
-        files = cur.fetchall()
-
-        if not files:
+        cur.execute("SELECT fileid, userid, filename, attachment FROM files WHERE fileid = %s", (file_id,))
+        row = cur.fetchone()
+        if not row:
             cur.close()
             conn.close()
-            return jsonify({"message": "No files found"}), 404
+            return jsonify({"error": "File not found"}), 404
 
-        summaries = []
-        all_texts = []
-        filenames = []
-        file_userids = []
-        file_ids = []
+        filename = row.get('filename') or f"file_{file_id}"
+        attachment = row.get('attachment')
 
-        for f in files:
-            file_ids.append(f['fileid'])
-            file_userids.append(f['userid'])
-            filenames.append(f['filename'])
-            attachment = f.get('attachment')
-            text = ""
-
-            # If attachment is bytes/blob stored in DB:
-            if attachment:
-                # psycopg2 may return a memoryview or bytes-like object
+        # Get raw bytes either from DB attachment (bytea) or fallback to uploads/<filename>
+        raw = None
+        if attachment:
+            try:
+                # psycopg2 might return memoryview
+                raw = attachment.tobytes() if hasattr(attachment, 'tobytes') else bytes(attachment)
+            except Exception:
+                # try direct bytes cast
                 try:
-                    if hasattr(attachment, 'tobytes'):
-                        raw = attachment.tobytes()
-                    else:
-                        raw = bytes(attachment)
+                    raw = bytes(attachment)
                 except Exception:
-                    # fallback: try as-is
-                    raw = attachment
+                    raw = None
 
-                # Use BytesIO so PdfReader can read it
-                try:
-                    bio = io.BytesIO(raw)
-                    # If your extract_text_from_pdf accepts file-like, use it; otherwise use PdfReader directly:
-                    extracted = extract_text_from_pdf(bio)
-                    text = extracted or ""
-                except Exception as ex:
-                    print(f"Warning: failed to extract from DB bytes for file {f['filename']}: {ex}")
-                    text = ""
-            else:
-                # No binary in DB — try to find a file on disk (uploads/<filename>)
-                fs_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), f['filename'] or '')
-                if os.path.exists(fs_path):
-                    try:
-                        extracted = extract_text_from_pdf(fs_path)
-                        text = extracted or ""
-                    except Exception as ex:
-                        print(f"Warning: failed to extract from file path {fs_path}: {ex}")
-                        text = ""
-                else:
-                    # nothing available
-                    text = ""
+        if not raw:
+            # fallback to file saved on disk
+            disk_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), filename)
+            if os.path.exists(disk_path):
+                with open(disk_path, 'rb') as fh:
+                    raw = fh.read()
 
-            if not text:
-                # push a minimal placeholder to avoid indexing issues
-                text = f"(No extractable text for {f.get('filename')})"
+        if not raw:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "No file bytes available to summarize"}), 400
 
-            summary = summarize_text(text, num_sentences=5)
-            summaries.append(summary)
-            all_texts.append(summary)
+        # Extract text using nlp_utils (supports file-like)
+        bio = io.BytesIO(raw)
+        text = extract_text_from_pdf(bio)
 
-        # Cluster summaries into topics (auto-n clusters limited to 3 here)
-        # cluster_topics expects a list of texts
-        try:
-            topics = cluster_topics(all_texts, n_clusters=min(3, max(1, len(all_texts))))
-        except Exception as ex:
-            print("Clustering failed, assigning default topics:", ex)
-            topics = [f"Topic {i+1}" for i in range(len(all_texts))]
+        summary = summarize_text(text, num_sentences=5)
+        keywords = extract_keywords(text, top_n=5)
+        topic_label = ", ".join(keywords) if keywords else "Uncategorized"
 
-        # Insert into SummaryGenerate table (use parameterized queries)
-        for i in range(len(files)):
-            uid = file_userids[i]
-            fid = file_ids[i]
-            modelname = "Local-TFIDF"
-            summ = summaries[i]
-            tok_in = len(all_texts[i].split())
-            tok_out = len(summ.split())
-            topic_label = topics[i] if i < len(topics) else f"Topic {i+1}"
-
-            cur.execute("""
-                INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput, topic)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (uid, fid, modelname, summ, tok_in, tok_out, topic_label))
-
+        # Insert into summarygenerate table
+        cur.execute("""
+            INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput, topic)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING summaryid, createdat
+        """, (
+            row.get('userid'), row.get('fileid'), "Local-TFIDF",
+            summary, len(text.split()), len(summary.split()), topic_label
+        ))
+        inserted = cur.fetchone()
         conn.commit()
         cur.close()
         conn.close()
-        return jsonify({"message": "Summaries generated successfully!"})
 
+        return jsonify({
+            "filename": filename,
+            "summary": summary,
+            "topic": topic_label,
+            "summary_id": inserted.get('summaryid') if inserted else None
+        })
     except Exception as e:
-        # print stacktrace to logs for debugging
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Summary generation failed", "detail": str(e)}), 500
 
 
 @app.route('/get-summaries')
@@ -1063,6 +1038,7 @@ if __name__ == '__main__':
     # Use Render's PORT environment variable (or default to 5000)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
