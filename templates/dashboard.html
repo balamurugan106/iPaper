@@ -866,7 +866,21 @@
       alert('Template generation started!'); 
     };
   });
+
+
+  document.getElementById("generateBtn").addEventListener("click", async () => {
+  const res = await fetch("/generate-summaries", { method: "POST" });
+  const data = await res.json();
+  if (data.message) {
+    alert("✅ " + data.message);
+    location.reload(); // refresh to display summaries
+  } else {
+    alert("❌ Error: " + data.error);
+  }
+});
+  
 </script>
 </body>
 </html>
+
 
