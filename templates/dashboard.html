@@ -513,7 +513,10 @@
       </div>
     </div>
     <h1>Welcome back, {{ name }}</h1>
-    <p class="welcome-subtitle muted">Manage your documents and generate summaries with ease</p>
+    <div id="summary-section">
+  <h3>Generated Summaries</h3>
+  <div id="summaries"></div>
+</div>
   </main>
 </div>
 
@@ -878,9 +881,28 @@
     alert("❌ Error: " + data.error);
   }
 });
+
+  async function loadSummaries() {
+  const res = await fetch("/get-summaries");
+  const data = await res.json();
+  const container = document.getElementById("summaries");
+  container.innerHTML = "";
+  data.forEach(item => {
+    container.innerHTML += `
+      <div class="summary-card">
+        <h5>${item.topic}</h5>
+        <p>${item.summary}</p>
+        <hr>
+      </div>
+    `;
+  });
+}
+
+window.onload = loadSummaries;
   
 </script>
 </body>
 </html>
+
 
 
