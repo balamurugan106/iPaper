@@ -6,5 +6,8 @@ python-dotenv
 werkzeug
 bcrypt
 
+pip install PyPDF2 nltk scikit-learn psycopg2-binary
+
 requests
 pdfplumber
+
