@@ -3,16 +3,41 @@ from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
 import nltk
+import io
 
 nltk.download('punkt', quiet=True)
 
 # --- Extract Text from PDF ---
-def extract_text_from_pdf(filepath):
-    reader = PdfReader(filepath)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
+def extract_text_from_pdf(source):
+    """
+    Accepts either a file path (str) or a file-like object (BytesIO / file stream).
+    Returns extracted text (string).
+    """
+    try:
+        if isinstance(source, (str, bytes)):
+            # path string given
+            reader = PdfReader(source)
+        else:
+            # file-like
+            source.seek(0)
+            reader = PdfReader(source)
+    except Exception as e:
+        # try treating as path
+        try:
+            reader = PdfReader(str(source))
+        except Exception:
+            raise
+
+    pages = []
+    for p in reader.pages:
+        try:
+            t = p.extract_text()
+        except Exception:
+            t = ""
+        if t:
+            pages.append(t)
+    return "\n".join(pages)
+    
 
 # --- Simple Extractive Summarizer ---
 def summarize_text(text, num_sentences=3):
@@ -37,3 +62,4 @@ def cluster_topics(texts, n_clusters=3):
     labels = kmeans.labels_
     topics = [f"Topic {i+1}" for i in labels]
     return topics
+
