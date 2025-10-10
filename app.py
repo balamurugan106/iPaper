@@ -1,25 +1,25 @@
-from flask import Flask, render_template, request, redirect, flash, session
+from flask import Flask, render_template, request, redirect, flash, session, jsonify, make_response, send_from_directory, Response, url_for
 from psycopg2.extras import RealDictCursor
-from nlp_utils import extract_text_from_pdf, summarize_text, cluster_topics
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_session import Session
-from flask import jsonify
 from dotenv import load_dotenv
-from flask import make_response
-from flask import send_from_directory
-from flask import Response
-from flask_session import Session
 import bcrypt
 import os
 import re
-from flask import url_for
 import uuid
 import psycopg2
 from datetime import datetime, timedelta
 import traceback
+import io
+
+from nlp_utils import extract_text_from_pdf, summarize_text, cluster_topics
+
 import nltk
-nltk.download('punkt')
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
 
 
 
@@ -939,47 +939,98 @@ def feedback():
 
 @app.route('/generate-summaries', methods=['POST'])
 def generate_summaries():
+    
     try:
-        conn = psycopg2.connect(
-            host="your_host",
-            database="your_db",
-            user="your_user",
-            password="your_password"
-        )
+        conn = get_db_connection()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Get all files uploaded by this user
-        cur.execute("SELECT * FROM files;")
+        # Fetch files (only those with an attachment)
+        cur.execute("SELECT fileid, userid, filename, attachment FROM files ORDER BY fileid DESC;")
         files = cur.fetchall()
 
         if not files:
+            cur.close()
+            conn.close()
             return jsonify({"message": "No files found"}), 404
 
         summaries = []
         all_texts = []
+        filenames = []
+        file_userids = []
+        file_ids = []
 
         for f in files:
-            file_path = os.path.join("uploads", f["attachment"])
-            if not os.path.exists(file_path):
-                continue
-            text = extract_text_from_pdf(file_path)
-            summary = summarize_text(text)
+            file_ids.append(f['fileid'])
+            file_userids.append(f['userid'])
+            filenames.append(f['filename'])
+            attachment = f.get('attachment')
+            text = ""
+
+            # If attachment is bytes/blob stored in DB:
+            if attachment:
+                # psycopg2 may return a memoryview or bytes-like object
+                try:
+                    if hasattr(attachment, 'tobytes'):
+                        raw = attachment.tobytes()
+                    else:
+                        raw = bytes(attachment)
+                except Exception:
+                    # fallback: try as-is
+                    raw = attachment
+
+                # Use BytesIO so PdfReader can read it
+                try:
+                    bio = io.BytesIO(raw)
+                    # If your extract_text_from_pdf accepts file-like, use it; otherwise use PdfReader directly:
+                    extracted = extract_text_from_pdf(bio)
+                    text = extracted or ""
+                except Exception as ex:
+                    print(f"Warning: failed to extract from DB bytes for file {f['filename']}: {ex}")
+                    text = ""
+            else:
+                # No binary in DB — try to find a file on disk (uploads/<filename>)
+                fs_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), f['filename'] or '')
+                if os.path.exists(fs_path):
+                    try:
+                        extracted = extract_text_from_pdf(fs_path)
+                        text = extracted or ""
+                    except Exception as ex:
+                        print(f"Warning: failed to extract from file path {fs_path}: {ex}")
+                        text = ""
+                else:
+                    # nothing available
+                    text = ""
+
+            if not text:
+                # push a minimal placeholder to avoid indexing issues
+                text = f"(No extractable text for {f.get('filename')})"
+
+            summary = summarize_text(text, num_sentences=5)
             summaries.append(summary)
             all_texts.append(summary)
 
-        # Cluster summaries by topic
-        topics = cluster_topics(all_texts, n_clusters=3)
+        # Cluster summaries into topics (auto-n clusters limited to 3 here)
+        # cluster_topics expects a list of texts
+        try:
+            topics = cluster_topics(all_texts, n_clusters=min(3, max(1, len(all_texts))))
+        except Exception as ex:
+            print("Clustering failed, assigning default topics:", ex)
+            topics = [f"Topic {i+1}" for i in range(len(all_texts))]
 
-        for i, f in enumerate(files):
+        # Insert into SummaryGenerate table (use parameterized queries)
+        for i in range(len(files)):
+            uid = file_userids[i]
+            fid = file_ids[i]
+            modelname = "Local-TFIDF"
+            summ = summaries[i]
+            tok_in = len(all_texts[i].split())
+            tok_out = len(summ.split())
+            topic_label = topics[i] if i < len(topics) else f"Topic {i+1}"
+
             cur.execute("""
                 INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput, topic)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                f["userid"], f["fileid"], "Local-TFIDF",
-                summaries[i],
-                len(all_texts[i].split()), len(summaries[i].split()),
-                topics[i]
-            ))
+            """, (uid, fid, modelname, summ, tok_in, tok_out, topic_label))
 
         conn.commit()
         cur.close()
@@ -987,26 +1038,31 @@ def generate_summaries():
         return jsonify({"message": "Summaries generated successfully!"})
 
     except Exception as e:
-        print("Error:", e)
+        # print stacktrace to logs for debugging
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/get-summaries')
 def get_summaries():
-    conn = psycopg2.connect(
-        host="your_host",
-        database="your_db",
-        user="your_user",
-        password="your_password"
-    )
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT summary, topic FROM summarygenerate ORDER BY createdat DESC")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(rows)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT summary, topic, createdat FROM summarygenerate ORDER BY createdat DESC")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify(rows)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify([]), 500
+
+
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Use Render's PORT environment variable (or default to 5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 
 
