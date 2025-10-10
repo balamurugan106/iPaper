@@ -607,39 +607,48 @@
   };
 
   function createDocumentItem(doc) {
-    const div = document.createElement('div');
-    div.className = 'document-item';
-    div.textContent = doc.filename || doc.name || 'untitled';
-    div.dataset.docId = doc.id;
-    div.dataset.fileName = doc.filename || doc.name || 'untitled';
-    div.draggable = true;
+  const div = document.createElement('div');
+  div.className = 'document-item';
+  div.textContent = doc.filename || doc.name || 'untitled';
+  div.dataset.docId = doc.id;
+  div.dataset.fileName = doc.filename || doc.name || 'untitled';
+  div.draggable = true;
 
-    div.onclick = () => window.open(`/view-document/${doc.id}`, '_blank');
+  // Single click -> select
+  div.onclick = (e) => {
+    document.querySelectorAll('.document-item').forEach(d => d.classList.remove('selected'));
+    div.classList.add('selected');
+    window.selectedDocId = doc.id;
+  };
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'document-delete-btn';
-    delBtn.textContent = '🗑';
-    delBtn.onclick = async (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete "${div.dataset.fileName}"?`)) {
-        await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
-        await loadDocuments();
-      }
-    };
+  // Double-click -> open view in a new tab
+  div.ondblclick = () => window.open(`/view-document/${doc.id}`, '_blank');
 
-    div.addEventListener('dragstart', function(e) {
-      this.classList.add('dragging');
-      e.dataTransfer.setData('text/plain', JSON.stringify({ docId: this.dataset.docId, fileName: this.dataset.fileName }));
-      e.dataTransfer.effectAllowed = 'move';
-    });
+  const delBtn = document.createElement('button');
+  delBtn.className = 'document-delete-btn';
+  delBtn.textContent = '🗑';
+  delBtn.onclick = async (e) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${div.dataset.fileName}"?`)) {
+      await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
+      await loadDocuments();
+    }
+  };
 
-    div.addEventListener('dragend', function() { 
-      this.classList.remove('dragging'); 
-    });
+  div.addEventListener('dragstart', function(e) {
+    this.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', JSON.stringify({ docId: this.dataset.docId, fileName: this.dataset.fileName }));
+    e.dataTransfer.effectAllowed = 'move';
+  });
 
-    div.appendChild(delBtn);
-    return div;
-  }
+  div.addEventListener('dragend', function() { 
+    this.classList.remove('dragging'); 
+  });
+
+  div.appendChild(delBtn);
+  return div;
+}
+
 
   async function loadDocuments() {
     try {
@@ -917,6 +926,7 @@ window.onload = loadSummaries;
 </script>
 </body>
 </html>
+
 
 
 
