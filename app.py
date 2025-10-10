@@ -15,6 +15,7 @@ import os
 import re
 from flask import url_for
 import uuid
+import psycopg2
 from datetime import datetime, timedelta
 import traceback
 import nltk
@@ -1006,6 +1007,7 @@ def get_summaries():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
