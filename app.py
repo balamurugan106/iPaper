@@ -16,6 +16,8 @@ from flask import url_for
 import uuid
 from datetime import datetime, timedelta
 import traceback
+import nltk
+nltk.download('punkt')
 
 
 
@@ -939,6 +941,7 @@ def feedback():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
