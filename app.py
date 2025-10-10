@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, flash, session
-import psycopg2
+from psycopg2.extras import RealDictCursor
+from nlp_utils import extract_text_from_pdf, summarize_text, cluster_topics
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_session import Session
@@ -935,12 +936,64 @@ def feedback():
             return render_template('feedback.html')
     return render_template('feedback.html')
 
+@app.route('/generate-summaries', methods=['POST'])
+def generate_summaries():
+    try:
+        conn = psycopg2.connect(
+            host="your_host",
+            database="your_db",
+            user="your_user",
+            password="your_password"
+        )
+        cur = conn.cursor(cursor_factory=RealDictCursor)
 
+        # Get all files uploaded by this user
+        cur.execute("SELECT * FROM files;")
+        files = cur.fetchall()
+
+        if not files:
+            return jsonify({"message": "No files found"}), 404
+
+        summaries = []
+        all_texts = []
+
+        for f in files:
+            file_path = os.path.join("uploads", f["attachment"])
+            if not os.path.exists(file_path):
+                continue
+            text = extract_text_from_pdf(file_path)
+            summary = summarize_text(text)
+            summaries.append(summary)
+            all_texts.append(summary)
+
+        # Cluster summaries by topic
+        topics = cluster_topics(all_texts, n_clusters=3)
+
+        for i, f in enumerate(files):
+            cur.execute("""
+                INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput, topic)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                f["userid"], f["fileid"], "Local-TFIDF",
+                summaries[i],
+                len(all_texts[i].split()), len(summaries[i].split()),
+                topics[i]
+            ))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"message": "Summaries generated successfully!"})
+
+    except Exception as e:
+        print("Error:", e)
+        return jsonify({"error": str(e)}), 500
 
 
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
