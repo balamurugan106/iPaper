@@ -3,29 +3,21 @@ import re
 from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import CountVectorizer
+import numpy as np
 
-def extract_text_from_pdf(source):
-    
-  
+def extract_text_from_pdf(file_path):
     try:
-        if hasattr(source, "read"):
-            source.seek(0)
-            reader = PdfReader(source)
-        else:
-            reader = PdfReader(str(source))
-    except Exception:
-        # fallback: try path
-        reader = PdfReader(str(source))
-
-    pages = []
-    for p in reader.pages:
-        try:
-            t = p.extract_text()
-        except Exception:
-            t = ""
-        if t:
-            pages.append(t)
-    return "\n".join(pages)
+        reader = PdfReader(file_path)
+        text = ""
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
+        return text
+    except Exception as e:
+        print(f"Error reading PDF: {e}")
+        return ""
 
 def simple_sentence_tokenize(text):
     """
@@ -55,19 +47,20 @@ def summarize_text(text, num_sentences=3):
     return summary
 
 def extract_keywords(text, top_n=5):
-   
-    if not text:
-        return []
+    # Clean text
+    text = re.sub(r'[^a-zA-Z\s]', '', text.lower())
 
-    vect = TfidfVectorizer(stop_words='english', max_df=0.9, ngram_range=(1,2))
-    X = vect.fit_transform([text])
-    feature_names = vect.get_feature_names_out()
-    scores = X.toarray()[0]
-    if scores.sum() == 0:
-        return []
-    top_idx = scores.argsort()[-top_n:][::-1]
-    keywords = [feature_names[i] for i in top_idx if i < len(feature_names)]
-    return keywords
+    # Tokenize and count word frequencies
+    vectorizer = CountVectorizer(stop_words='english')
+    X = vectorizer.fit_transform([text])
+    words = vectorizer.get_feature_names_out()
+    counts = np.asarray(X.sum(axis=0)).flatten()
+
+    # Sort by frequency
+    sorted_indices = counts.argsort()[::-1]
+    top_keywords = [words[i] for i in sorted_indices[:top_n]]
+
+    return top_keywords
 
 def cluster_topics(docs, k=3):
     
@@ -81,3 +74,4 @@ def cluster_topics(docs, k=3):
     model = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
     labels = model.fit_predict(X)
     return [f"Topic {l+1}" for l in labels]
+
