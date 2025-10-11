@@ -941,81 +941,28 @@ def feedback():
 
 @app.route('/generate-summary', methods=['POST'])
 def generate_summary():
-    
-    try:
-        payload = request.get_json(force=True)
-        file_id = payload.get('file_id')
-        if not file_id:
-            return jsonify({"error": "file_id is required"}), 400
+    file_id = request.form.get('file_id')
 
-        conn = get_db_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT fileid, userid, filename, attachment FROM files WHERE fileid = %s", (file_id,))
-        row = cur.fetchone()
-        if not row:
-            cur.close()
-            conn.close()
-            return jsonify({"error": "File not found"}), 404
+    # Get file path from DB
+    cursor.execute("SELECT attachment FROM files WHERE fileid = %s", (file_id,))
+    row = cursor.fetchone()
+    if not row:
+        return jsonify({"error": "File not found"}), 404
 
-        filename = row.get('filename') or f"file_{file_id}"
-        attachment = row.get('attachment')
+    file_path = row[0]
+    text = extract_text_from_pdf(file_path)
+    summary = summarize_text(text)
+    keywords = extract_keywords(text, top_n=5)
 
-        # Get raw bytes either from DB attachment (bytea) or fallback to uploads/<filename>
-        raw = None
-        if attachment:
-            try:
-                # psycopg2 might return memoryview
-                raw = attachment.tobytes() if hasattr(attachment, 'tobytes') else bytes(attachment)
-            except Exception:
-                # try direct bytes cast
-                try:
-                    raw = bytes(attachment)
-                except Exception:
-                    raw = None
+    # Store in DB
+    cursor.execute("""
+        INSERT INTO summarygenerate (userid, fileid, summary, modelname)
+        VALUES (%s, %s, %s, %s)
+    """, (session['user_id'], file_id, summary, "BART-Large-CNN"))
+    conn.commit()
 
-        if not raw:
-            # fallback to file saved on disk
-            disk_path = os.path.join(app.config.get('UPLOAD_FOLDER', 'uploads'), filename)
-            if os.path.exists(disk_path):
-                with open(disk_path, 'rb') as fh:
-                    raw = fh.read()
+    return jsonify({"summary": summary, "keywords": keywords})
 
-        if not raw:
-            cur.close()
-            conn.close()
-            return jsonify({"error": "No file bytes available to summarize"}), 400
-
-        # Extract text using nlp_utils (supports file-like)
-        bio = io.BytesIO(raw)
-        text = extract_text_from_pdf(bio)
-
-        summary = summarize_text(text, num_sentences=5)
-        keywords = extract_keywords(text, top_n=5)
-        topic_label = ", ".join(keywords) if keywords else "Uncategorized"
-
-        # Insert into summarygenerate table
-        cur.execute("""
-            INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput, topic)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING summaryid, createdat
-        """, (
-            row.get('userid'), row.get('fileid'), "Local-TFIDF",
-            summary, len(text.split()), len(summary.split()), topic_label
-        ))
-        inserted = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        return jsonify({
-            "filename": filename,
-            "summary": summary,
-            "topic": topic_label,
-            "summary_id": inserted.get('summaryid') if inserted else None
-        })
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": "Summary generation failed", "detail": str(e)}), 500
 
 
 @app.route('/get-summaries')
@@ -1038,6 +985,7 @@ if __name__ == '__main__':
     # Use Render's PORT environment variable (or default to 5000)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
