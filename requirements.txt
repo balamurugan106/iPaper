@@ -5,6 +5,8 @@ Flask-Session
 python-dotenv
 werkzeug
 bcrypt
+google-genai
+numpy
 
 PyPDF2
 nltk
@@ -14,6 +16,7 @@ requests
 pdfplumber
 transformers
 torch
+
 
 
 
