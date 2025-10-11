@@ -15,7 +15,7 @@ import io
 import json
 
 
-from nlp_utils import extract_text_from_pdf, summarize_text, cluster_topics
+from nlp_utils import extract_text_from_pdf, extract_keywords, summarize_text, cluster_topics
 
 
 load_dotenv()
@@ -1038,6 +1038,7 @@ if __name__ == '__main__':
     # Use Render's PORT environment variable (or default to 5000)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
