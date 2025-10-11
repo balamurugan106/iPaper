@@ -13,4 +13,8 @@ scikit-learn
 requests
 pdfplumber
 
+transformers
+torch
+
+
 
