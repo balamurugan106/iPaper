@@ -5,7 +5,7 @@ from werkzeug.utils import secure_filename
 from flask_session import Session
 from dotenv import load_dotenv
 import bcrypt
-import os
+
 import re
 import uuid
 import psycopg2
@@ -14,8 +14,8 @@ import traceback
 import io
 import json
 
-
-from nlp_utils import extract_text_from_pdf, extract_keywords, summarize_text, cluster_topics
+from nlp_utils import extract_text_from_pdf, summarize_text_with_gemini, extract_keywords
+import tempfile, os
 
 
 load_dotenv()
@@ -941,27 +941,56 @@ def feedback():
 
 @app.route('/generate-summary', methods=['POST'])
 def generate_summary():
+    if 'user_id' not in session:
+        return jsonify({"error": "not logged in"}), 401
+
     file_id = request.form.get('file_id')
+    if not file_id:
+        return jsonify({"error": "file_id required"}), 400
 
-    # Get file path from DB
-    cursor.execute("SELECT attachment FROM files WHERE fileid = %s", (file_id,))
-    row = cursor.fetchone()
+    # fetch attachment bytes/path from DB
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT attachment, filename FROM files WHERE fileid = %s AND userid = %s", (file_id, session['user_id']))
+    row = cur.fetchone()
     if not row:
-        return jsonify({"error": "File not found"}), 404
+        cur.close(); conn.close()
+        return jsonify({"error": "file not found"}), 404
 
-    file_path = row[0]
-    text = extract_text_from_pdf(file_path)
-    summary = summarize_text(text)
-    keywords = extract_keywords(text, top_n=5)
+    attachment, filename = row
+    # If attachment is bytea stored in DB:
+    tmp_path = None
+    try:
+        # write bytes to temp file
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
+        tmp.write(attachment.tobytes() if hasattr(attachment, 'tobytes') else attachment)
+        tmp.flush()
+        tmp.close()
+        tmp_path = tmp.name
 
-    # Store in DB
-    cursor.execute("""
-        INSERT INTO summarygenerate (userid, fileid, summary, modelname)
-        VALUES (%s, %s, %s, %s)
-    """, (session['user_id'], file_id, summary, "BART-Large-CNN"))
-    conn.commit()
+        text = extract_text_from_pdf(tmp_path)
+        if not text:
+            result = {"error": "Could not extract text from this PDF (it may be scanned)."}
+            return jsonify(result), 400
 
-    return jsonify({"summary": summary, "keywords": keywords})
+        summary = summarize_text_with_gemini(text)
+        keywords = extract_keywords(text, top_n=6)
+
+        # store into SummaryGenerate (adjust columns to your schema)
+        cur.execute("""
+            INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING summaryid, createdat
+        """, (session['user_id'], file_id, "gemini-2.5-flash", summary, len(text.split()), len(summary.split())))
+        inserted = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({"summary": summary, "keywords": keywords, "summary_id": inserted[0]})
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 
@@ -985,6 +1014,7 @@ if __name__ == '__main__':
     # Use Render's PORT environment variable (or default to 5000)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
