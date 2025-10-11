@@ -7,17 +7,31 @@ from sklearn.feature_extraction.text import CountVectorizer
 import numpy as np
 
 def extract_text_from_pdf(file_path):
+    """
+    Safely extract text from PDF.
+    Skips image-heavy or unreadable pages to prevent memory errors on Render.
+    """
     try:
         reader = PdfReader(file_path)
         text = ""
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text
-        return text
+        for i, page in enumerate(reader.pages):
+            try:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+                else:
+                    print(f"⚠️ Skipping page {i+1}: no text layer found")
+            except Exception as e:
+                print(f"⚠️ Error on page {i+1}: {e}")
+                continue
+
+        if not text.strip():
+            text = "No extractable text found in the PDF. It may be scanned or image-based."
+        return text.strip()
+
     except Exception as e:
-        print(f"Error reading PDF: {e}")
-        return ""
+        print(f"❌ Error reading PDF: {e}")
+        return "Error reading PDF file."
 
 def simple_sentence_tokenize(text):
     """
@@ -74,4 +88,5 @@ def cluster_topics(docs, k=3):
     model = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
     labels = model.fit_predict(X)
     return [f"Topic {l+1}" for l in labels]
+
 
