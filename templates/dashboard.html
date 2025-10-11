@@ -867,8 +867,12 @@
     try {
       const res = await fetch('/generate-summary', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId })
+        body: new FormData(document.getElementById('generateForm'))
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('summaryBox').innerText = data.summary;
+        document.getElementById('keywordBox').innerText = data.keywords.join(', ');
       });
       const data = await res.json();
       if (res.ok && !data.error) {
@@ -931,6 +935,7 @@ window.onload = loadSummaries;
 </script>
 </body>
 </html>
+
 
 
 
