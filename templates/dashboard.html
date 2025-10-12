@@ -823,17 +823,87 @@
     if (event && event.target) event.target.classList.add('active');
   }
 
-  // 初始化 - 保持所有现有功能
-  document.addEventListener('DOMContentLoaded', () => {
-    initResizeButtons(); 
-    loadCategories(); 
-    loadDocuments();
-    
-    const allDocsCategory = document.querySelector('.category[data-category="all"]');
-    if (allDocsCategory) { 
-      allDocsCategory.onclick = () => setCurrentCategory('all'); 
-      setupDropZone(allDocsCategory); 
-    }
+ document.addEventListener('DOMContentLoaded', () => {
+  // ensure documents are loaded first
+  loadCategories();
+  loadDocuments();
+
+  const generateBtn = document.getElementById('generateBtn');
+  const out = document.getElementById('summary-output');
+  const summaryBox = document.getElementById('summaryBox');
+  const keywordBox = document.getElementById('keywordBox');
+  const formFileId = document.getElementById('form_file_id');
+
+  // helper to show messages
+  function showMessage(html, isError = false) {
+    out.innerHTML = `<p style="color:${isError ? 'red' : 'inherit'}">${html}</p>`;
+  }
+
+  if (generateBtn) {
+    generateBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+
+      const fileId = window.selectedDocId;
+      if (!fileId) {
+        showMessage('⚠️ Please select a document on the left, then click Generate.', true);
+        return;
+      }
+
+      // populate hidden form field
+      formFileId.value = fileId;
+
+      // set loading state
+      generateBtn.disabled = true;
+      generateBtn.textContent = 'Generating…';
+      showMessage('<em>Generating summary — this can take a few seconds.</em>');
+      summaryBox.classList.add('hidden');
+      keywordBox.style.display = 'none';
+
+      try {
+        const form = new FormData(document.getElementById('generateForm'));
+        const res = await fetch('/generate-summary', {
+          method: 'POST',
+          body: form
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          // server returned non-2xx
+          const msg = data.error || data.detail || 'Unknown server error';
+          showMessage('Error generating summary: ' + msg, true);
+        } else if (data && data.summary) {
+          // success — show structured output
+          out.innerHTML = `
+            <h4 style="margin-top:0">${data.filename || ''}</h4>
+            <p><strong>Summary:</strong></p>
+          `;
+          summaryBox.classList.remove('hidden');
+          summaryBox.innerText = data.summary;
+
+          if (data.keywords && Array.isArray(data.keywords) && data.keywords.length) {
+            keywordBox.style.display = 'block';
+            keywordBox.innerText = 'Keywords: ' + data.keywords.join(', ');
+          } else {
+            keywordBox.style.display = 'none';
+          }
+
+          // optionally update documents list
+          await loadDocuments();
+        } else {
+          showMessage('Unexpected response from the server.', true);
+        }
+      } catch (err) {
+        console.error('Generate error:', err);
+        showMessage('Network or unexpected error while generating summary. Check server logs.', true);
+      } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = 'Generate';
+      }
+    });
+  }
+});
+
     
     const s = state(); 
     const btnLS = document.getElementById('btnLS'); 
@@ -935,6 +1005,7 @@ window.onload = loadSummaries;
 </script>
 </body>
 </html>
+
 
 
 
