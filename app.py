@@ -14,7 +14,7 @@ import traceback
 import io
 import json
 
-from nlp_utils import extract_text_from_pdf, summarize_text_with_gemini, extract_keywords
+import google.generativeai as genai
 import tempfile, os
 
 
@@ -31,6 +31,18 @@ ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx'}
 # Admin credentials from environment (instead of hardcoded)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+
+# Configure Gemini AI
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+    print("Warning: GEMINI_API_KEY not found in environment variables")
+
+
+
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -939,58 +951,53 @@ def feedback():
             return render_template('feedback.html')
     return render_template('feedback.html')
 
-@app.route('/generate-summary', methods=['POST'])
-def generate_summary():
+
+@app.route('/generate-summary-direct', methods=['POST'])
+def generate_summary_direct():
     if 'user_id' not in session:
-        return jsonify({"error": "not logged in"}), 401
-
-    file_id = request.form.get('file_id')
-    if not file_id:
-        return jsonify({"error": "file_id required"}), 400
-
-    # fetch attachment bytes/path from DB
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT attachment, filename FROM files WHERE fileid = %s AND userid = %s", (file_id, session['user_id']))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        return jsonify({"error": "file not found"}), 404
-
-    attachment, filename = row
-    # If attachment is bytea stored in DB:
-    tmp_path = None
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    
     try:
-        # write bytes to temp file
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1])
-        tmp.write(attachment.tobytes() if hasattr(attachment, 'tobytes') else attachment)
-        tmp.flush()
-        tmp.close()
-        tmp_path = tmp.name
-
-        text = extract_text_from_pdf(tmp_path)
-        if not text:
-            result = {"error": "Could not extract text from this PDF (it may be scanned)."}
-            return jsonify(result), 400
-
-        summary = summarize_text_with_gemini(text)
-        keywords = extract_keywords(text, top_n=6)
-
-        # store into SummaryGenerate (adjust columns to your schema)
-        cur.execute("""
-            INSERT INTO summarygenerate (userid, fileid, modelname, summary, tokeninput, tokenoutput)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING summaryid, createdat
-        """, (session['user_id'], file_id, "gemini-2.5-flash", summary, len(text.split()), len(summary.split())))
-        inserted = cur.fetchone()
-        conn.commit()
+        data = request.get_json()
+        doc_id = data.get('doc_id')
+        
+        if not doc_id:
+            return jsonify({"success": False, "error": "No document selected"}), 400
+        
+        # Get the document from database
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT attachment, filename FROM files WHERE fileid = %s AND userid = %s", 
+                   (doc_id, session['user_id']))
+        row = cur.fetchone()
         cur.close()
         conn.close()
-
-        return jsonify({"summary": summary, "keywords": keywords, "summary_id": inserted[0]})
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        
+        if not row:
+            return jsonify({"success": False, "error": "Document not found"}), 404
+        
+        pdf_data, filename = row
+        bytes_data = pdf_data.tobytes() if hasattr(pdf_data, 'tobytes') else pdf_data
+        
+        # Extract text from PDF
+        text = extract_text_from_pdf(bytes_data)
+        if not text:
+            return jsonify({"success": False, "error": "Could not extract text from PDF"}), 400
+        
+        # Generate summary using Gemini with a general prompt
+        prompt = "Please provide a clear and concise summary of this document, highlighting the main points and key information. Focus on the most important content and present it in a well-structured format."
+        
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(f"{prompt}\n\nDocument text:\n{text}")
+        
+        return jsonify({
+            "success": True, 
+            "summary": response.text,
+            "filename": filename
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 
@@ -1010,10 +1017,53 @@ def get_summaries():
 
 
 
+def extract_text_from_pdf(pdf_data):
+    """Extract text from PDF binary data"""
+    try:
+        pdf_file = io.BytesIO(pdf_data)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        print(f"Error extracting text from PDF: {e}")
+        return None
+
+
+def generate_summary_with_gemini(text, template_type="general"):
+    """Generate summary using Gemini AI"""
+    if not GEMINI_API_KEY:
+        return "Error: Gemini API key not configured"
+    
+    try:
+        # Different prompts based on template type
+        prompts = {
+            "meeting": "Please provide a comprehensive summary of this meeting transcript. Include key points, decisions made, action items, and next steps.",
+            "speech": "Summarize this speech transcript. Capture the main arguments, key messages, and important quotes.",
+            "call": "Create a summary of this phone call transcript. Highlight the main topics discussed, outcomes, and follow-up actions.",
+            "medical": "Summarize this medical document focusing on key findings, diagnoses, treatments, and recommendations.",
+            "sales": "Extract the key information from this sales document including products/services, pricing, and customer information.",
+            "general": "Please provide a clear and concise summary of this document, highlighting the main points and key information."
+        }
+        
+        prompt = prompts.get(template_type, prompts["general"])
+        
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(f"{prompt}\n\nDocument text:\n{text}")
+        
+        return response.text
+    except Exception as e:
+        return f"Error generating summary: {str(e)}"
+
+
+
+
 if __name__ == '__main__':
     # Use Render's PORT environment variable (or default to 5000)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
