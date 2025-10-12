@@ -918,13 +918,18 @@ async function handleGenerateSummary() {
     if (templateModal) templateModal.onclick = (e) => { 
       if (e.target === templateModal) templateModal.classList.add('hidden'); 
     };
-    if (generateButton) generateButton.onclick = () => { 
-      templateModal.classList.add('hidden'); 
-      alert('Template generation started!'); 
-    };
-  });
+    
+    if (generateButton) {
+  generateButton.onclick = async () => {
+    templateModal.classList.add('hidden');
+    await handleGenerateSummary();
+  };
+}
+
+    
 </script>
 </body>
 </html>
+
 
 
