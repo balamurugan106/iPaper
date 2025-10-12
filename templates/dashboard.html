@@ -414,7 +414,7 @@
       <div class="topbar-actions">
         <button id="downloadBtn" class="action-btn secondary">Download</button>
         {% if latest_membership != "Free" %}
-          <button id="generateBtn" class="action-btn">Generate Summary</button>
+          <button id="generateSummaryDirectBtn" class="action-btn">Generate Summary</button>
         {% else %}
           <button id="generateBtn" class="action-btn" disabled title="Upgrade to use Generate">Generate Summary</button>
         {% endif %}
@@ -430,43 +430,7 @@
   </main>
 </div>
 
-<!-- Simple Summary Modal -->
-<div id="summaryModal" class="template-selector-modal hidden">
-  <div class="template-selector-container">
-    <div class="content-area">
-      <div style="margin-bottom: 20px;">
-        <h3 style="color: var(--accent); margin-bottom: 10px;">Generate AI Summary</h3>
-        <p class="muted">Select a document to generate AI-powered summary using Google Gemini</p>
-      </div>
-      
-      <div style="margin-bottom: 20px;">
-        <label style="display: block; margin-bottom: 8px; font-weight: 600;">Select Document:</label>
-        <select id="documentSelect">
-          <option value="">-- Choose a document --</option>
-        </select>
-      </div>
-      
-      <div id="summary-result" class="document-preview hidden">
-        <h3>Generated Summary</h3>
-        <div id="summary-text"></div>
-      </div>
-      
-      <div id="summary-loading" class="hidden">
-        <div style="font-size: 14px; color: var(--muted); margin-bottom: 10px;">Generating AI summary... This may take a moment.</div>
-        <div style="font-size: 12px; color: var(--muted);">Analyzing document content with Google Gemini AI</div>
-      </div>
-      
-      <div id="summary-error" class="hidden">
-        <div id="error-text"></div>
-      </div>
-      
-      <div class="modal-buttons">
-        <button id="generateSummaryBtn" class="action-btn" disabled>Generate Summary</button>
-        <button id="closeSummaryModal" class="action-btn secondary">Close</button>
-      </div>
-    </div>
-  </div>
-</div>
+
 
 <script>
   const $ = selector => document.querySelector(selector);
@@ -509,6 +473,39 @@
     applyCollapse(s.hasLS, !s.hasUS); 
   };
 
+
+document.getElementById('generateSummaryDirectBtn').addEventListener('click', async () => {
+  const firstDoc = await fetch('/get-documents')
+    .then(res => res.json())
+    .then(docs => docs?.[0]);
+
+  if (!firstDoc || !firstDoc.id) {
+    alert('No document available to summarize.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/generate-summary-direct', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc_id: firstDoc.id })
+    });
+
+    const result = await res.json();
+    if (result?.summary) {
+      alert('Summary:\n\n' + result.summary);
+    } else {
+      alert('Failed to generate summary.');
+    }
+  } catch (err) {
+    console.error('Error generating summary:', err);
+    alert('Error generating summary. See console.');
+  }
+});
+
+
+
+  
   function createDocumentItem(doc) {
     const div = document.createElement('div');
     div.className = 'document-item';
@@ -900,3 +897,4 @@
 </script>
 </body>
 </html>
+
