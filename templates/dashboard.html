@@ -857,7 +857,38 @@
     const templateModal = document.getElementById('templateSelectorModal'); 
     const generateButton = document.querySelector('.generate-button');
     
-    if (generateBtn) generateBtn.onclick = () => templateModal.classList.remove('hidden');
+    if (generateBtn) {
+  generateBtn.onclick = async () => {
+    try {
+      generateBtn.disabled = true;
+      generateBtn.textContent = "Generating...";
+      
+      // Call backend to summarize documents
+      const res = await fetch('/generate_summary', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to generate summary');
+      
+      const data = await res.json();
+      
+      // Display the summary in the main content area
+      const main = document.querySelector('.main');
+      const summaryContainer = document.createElement('div');
+      summaryContainer.className = 'document-preview';
+      summaryContainer.innerHTML = `
+        <h2>Generated Summary</h2>
+        <p>${data.summary || 'No summary generated.'}</p>
+      `;
+      main.appendChild(summaryContainer);
+
+    } catch (err) {
+      console.error('Error generating summary:', err);
+      alert('Failed to generate summary. Please try again.');
+    } finally {
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Generate";
+    }
+  };
+}
+
     if (templateModal) templateModal.onclick = (e) => { 
       if (e.target === templateModal) templateModal.classList.add('hidden'); 
     };
@@ -869,3 +900,4 @@
 </script>
 </body>
 </html>
+
