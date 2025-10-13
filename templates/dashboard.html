@@ -480,30 +480,7 @@
   };
 
 
-document.getElementById('generateSummaryDirectBtn').addEventListener('click', async () => {
-  if (!selectedDocumentId) {
-    alert('Please select a document first by clicking on it.');
-    return;
-  }
 
-  try {
-    const res = await fetch('/generate-summary-direct', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc_id: selectedDocumentId })
-    });
-
-    const result = await res.json();
-    if (result.success) {
-      alert(`Summary:\n\n${result.summary}`);
-    } else {
-      alert(`Error: ${result.error}`);
-    }
-  } catch (err) {
-    console.error('Summary error:', err);
-    alert('Failed to generate summary. See console.');
-  }
-});
 
 
 let selectedDocumentId = null;
@@ -959,9 +936,41 @@ let selectedDocumentId = null;
       });
     }
   });
+
+
+  document.getElementById('generateSummaryDirectBtn').addEventListener('click', async () => {
+    if (!selectedDocumentId) {
+      alert('Please select a document first by clicking on it.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/generate-summary-direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc_id: selectedDocumentId })
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        alert(`Summary:\n\n${result.summary}`);
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (err) {
+      console.error('Summary error:', err);
+      alert('Failed to generate summary. See console.');
+    }
+  });
+
+  // Load documents on page load
+  document.addEventListener('DOMContentLoaded', () => {
+    loadDocuments();
+  });
 </script>
 </body>
 </html>
+
 
 
 
