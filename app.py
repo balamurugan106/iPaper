@@ -16,7 +16,7 @@ from flask import url_for
 import uuid
 from datetime import datetime, timedelta
 import traceback
-
+import google.generativeai as genai
 
 
 load_dotenv()
@@ -963,11 +963,19 @@ def get_templates():
         return jsonify({'error': str(e)}), 500
 
 
-        
+genai.configure(api_key="GEMINI_API_KEY")  # Replace with your actual key
+
+model = genai.GenerativeModel("gemini-pro")
+
+def generate_summary(prompt, document_text):
+    full_prompt = f"{prompt}\n\nDocument:\n{document_text}"
+    response = model.generate_content(full_prompt)
+    return response.text
 
 
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
