@@ -373,6 +373,12 @@
       align-items: center;
       justify-content: center;
     }
+    .document-item.active-document {
+  background: #e0f2fe;
+  border-color: var(--brand);
+  box-shadow: var(--shadow-sm);
+}
+
   </style>
 </head>
 <body>
@@ -507,25 +513,41 @@ document.getElementById('generateSummaryDirectBtn').addEventListener('click', as
 
   
   function createDocumentItem(doc) {
-    const div = document.createElement('div');
-    div.className = 'document-item';
-    div.textContent = doc.filename || doc.name || 'untitled';
-    div.dataset.docId = doc.id;
-    div.dataset.fileName = doc.filename || doc.name || 'untitled';
-    div.draggable = true;
+  const div = document.createElement('div');
+  div.className = 'document-item';
+  div.textContent = doc.filename || doc.name || 'untitled';
+  div.dataset.docId = doc.id;
+  div.dataset.fileName = doc.filename || doc.name || 'untitled';
+  div.draggable = true;
 
-    div.onclick = () => window.open(`/view-document/${doc.id}`, '_blank');
+  // Highlight on single click
+  div.addEventListener('click', function () {
+    document.querySelectorAll('.document-item').forEach(el => el.classList.remove('active-document'));
+    this.classList.add('active-document');
+    selectedDocumentId = this.dataset.docId;
+  });
 
-    const delBtn = document.createElement('button');
-    delBtn.className = 'document-delete-btn';
-    delBtn.textContent = '🗑';
-    delBtn.onclick = async (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete "${div.dataset.fileName}"?`)) {
-        await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
-        await loadDocuments();
-      }
-    };
+  // Open in new tab on double click
+  div.addEventListener('dblclick', function () {
+    window.open(`/view-document/${doc.id}`, '_blank');
+  });
+
+  // Delete button
+  const delBtn = document.createElement('button');
+  delBtn.className = 'document-delete-btn';
+  delBtn.textContent = '🗑';
+  delBtn.onclick = async (e) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${div.dataset.fileName}"?`)) {
+      await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
+      await loadDocuments();
+    }
+  };
+
+  div.appendChild(delBtn);
+  return div;
+}
+
 
     div.addEventListener('dragstart', function(e) {
       this.classList.add('dragging');
@@ -897,4 +919,5 @@ document.getElementById('generateSummaryDirectBtn').addEventListener('click', as
 </script>
 </body>
 </html>
+
 
