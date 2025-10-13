@@ -481,12 +481,8 @@
 
 
 document.getElementById('generateSummaryDirectBtn').addEventListener('click', async () => {
-  const firstDoc = await fetch('/get-documents')
-    .then(res => res.json())
-    .then(docs => docs?.[0]);
-
-  if (!firstDoc || !firstDoc.id) {
-    alert('No document available to summarize.');
+  if (!selectedDocumentId) {
+    alert('Please select a document first by clicking on it.');
     return;
   }
 
@@ -494,18 +490,18 @@ document.getElementById('generateSummaryDirectBtn').addEventListener('click', as
     const res = await fetch('/generate-summary-direct', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc_id: firstDoc.id })
+      body: JSON.stringify({ doc_id: selectedDocumentId })
     });
 
     const result = await res.json();
-    if (result?.summary) {
-      alert('Summary:\n\n' + result.summary);
+    if (result.success) {
+      alert(`Summary:\n\n${result.summary}`);
     } else {
-      alert('Failed to generate summary.');
+      alert(`Error: ${result.error}`);
     }
   } catch (err) {
-    console.error('Error generating summary:', err);
-    alert('Error generating summary. See console.');
+    console.error('Summary error:', err);
+    alert('Failed to generate summary. See console.');
   }
 });
 
@@ -919,5 +915,6 @@ document.getElementById('generateSummaryDirectBtn').addEventListener('click', as
 </script>
 </body>
 </html>
+
 
 
