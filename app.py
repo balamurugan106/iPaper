@@ -17,6 +17,9 @@ import uuid
 from datetime import datetime, timedelta
 import traceback
 import google.generativeai as genai
+from gemini_client import generate_summary
+
+
 
 
 load_dotenv()
@@ -973,9 +976,24 @@ def generate_summary(prompt, document_text):
     return response.text
 
 
+@app.route('/generate_summary', methods=['POST'])
+def generate_summary_route():
+    data = request.get_json()
+    prompt = data.get('prompt')
+    document_text = data.get('document_text')
+
+    if not prompt or not document_text:
+        return jsonify({'error': 'Missing prompt or document text'}), 400
+
+    try:
+        summary = generate_summary(prompt, document_text)
+        return jsonify({'summary': summary})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
