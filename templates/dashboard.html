@@ -899,8 +899,30 @@ function useSelectedTemplate() {
   }
 });
 
+async function useSelectedTemplate() {
+  const selectedId = document.getElementById('templateContent').dataset.selectedTemplateId;
+  const selectedPrompt = document.querySelector('.content-box-description').textContent;
+  const documentText = await fetchDocumentText(); // You’ll need to implement this
+
+  const res = await fetch('/generate_summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt: selectedPrompt, document_text: documentText })
+  });
+
+  const result = await res.json();
+  if (result.summary) {
+    alert("Summary:\n" + result.summary); // Replace with modal or preview
+  } else {
+    alert("Error: " + result.error);
+  }
+
+  document.getElementById('templateModal').classList.add('hidden');
+}
+
   
 </script>
 </body>
 </html>
+
 
