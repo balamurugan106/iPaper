@@ -580,7 +580,24 @@
     div.dataset.fileName = doc.filename || doc.name || 'untitled';
     div.draggable = true;
 
-    div.onclick = () => window.open(`/view-document/${doc.id}`, '_blank');
+    let clickTimer = null;
+
+  div.addEventListener('click', () => {
+    // Delay to distinguish single vs double click
+    clickTimer = setTimeout(() => {
+      document.querySelectorAll('.document-item').forEach(d => d.classList.remove('selected'));
+      div.classList.add('selected');
+      selectedDocumentId = doc.id;
+      selectedDocumentName = doc.filename;
+    }, 250); // Adjust delay if needed
+  });
+
+  div.addEventListener('dblclick', () => {
+    clearTimeout(clickTimer); // Cancel single-click action
+    window.open(`/view-document/${doc.id}`, '_blank');
+  });
+
+  return div;
 
     const delBtn = document.createElement('button');
     delBtn.className = 'document-delete-btn';
@@ -924,5 +941,6 @@ async function useSelectedTemplate() {
 </script>
 </body>
 </html>
+
 
 
