@@ -513,7 +513,11 @@
       </div>
     </div>
     <h1>Welcome back, {{ name }}</h1>
-    <p class="welcome-subtitle muted">Manage your documents and generate summaries with ease</p>
+    <div id="summaryPreview" class="main-content hidden">
+  <div class="section-title">Summary for <span id="summaryFileName"></span></div>
+  <div class="document-preview" id="summaryContent"></div>
+</div>
+
   </main>
 </div>
 
@@ -944,10 +948,17 @@ async function useSelectedTemplate() {
   document.getElementById('templateModal').classList.add('hidden');
 }
 
+function showSummary(text, fileName) {
+  $('#summaryFileName').textContent = fileName;
+  $('#summaryContent').textContent = text;
+  $('#summaryPreview').classList.remove('hidden');
+}
+
   
 </script>
 </body>
 </html>
+
 
 
 
