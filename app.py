@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import traceback
 from PyPDF2 import PdfReader
 import google.generativeai as genai
+import io
 
 
 load_dotenv()
@@ -969,14 +970,15 @@ def get_templates():
 def summarize_document():
     if 'user_id' not in session:
         return jsonify({"success": False, "error": "Not logged in"}), 401
+
     try:
         data = request.get_json()
         doc_id = data.get('document_id')
         template_prompt = data.get('prompt')
-
         if not doc_id or not template_prompt:
             return jsonify({"success": False, "error": "Missing parameters"}), 400
 
+        # Fetch PDF from DB
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("SELECT attachment, filename FROM files WHERE fileid = %s AND userid = %s",
@@ -991,30 +993,46 @@ def summarize_document():
         pdf_data, filename = row
         pdf_bytes = pdf_data.tobytes() if hasattr(pdf_data, 'tobytes') else pdf_data
 
-        # --- Extract text from PDF ---
-        import io
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
+        # --- Safe Text Extraction ---
+        text_chunks = []
+        try:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            for page_num, page in enumerate(reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_chunks.append(page_text)
+                    # Limit to first few pages (Render can't handle full PDFs)
+                    if page_num >= 5:
+                        break
+                except Exception as inner_err:
+                    print(f"⚠️ Skipped page {page_num+1}: {inner_err}")
+        except Exception as e:
+            print("⚠️ PyPDF2 failed, fallback to blank text:", e)
+
+        text = "\n".join(text_chunks)[:15000]  # 15k chars limit
+
+        if not text.strip():
+            return jsonify({"success": False, "error": "No text could be extracted from PDF"}), 400
 
         # --- Summarize using Gemini ---
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel("gemini-pro")
-        prompt = f"{template_prompt}\n\nDocument content:\n{text[:15000]}"  # limit to avoid token overload
+
+        prompt = f"{template_prompt}\n\nDocument Content (truncated to fit limits):\n{text}"
         result = model.generate_content(prompt)
-        summary = result.text.strip() if result and result.text else "No summary generated."
+        summary = result.text.strip() if result and hasattr(result, "text") else "No summary generated."
 
         return jsonify({"success": True, "summary": summary, "filename": filename})
 
     except Exception as e:
+        import traceback
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
-
-        
 
 
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
