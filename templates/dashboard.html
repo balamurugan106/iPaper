@@ -919,17 +919,24 @@ function useSelectedTemplate() {
 async function useSelectedTemplate() {
   const selectedId = document.getElementById('templateContent').dataset.selectedTemplateId;
   const selectedPrompt = document.querySelector('.content-box-description').textContent;
-  const documentText = await fetchDocumentText(); // You’ll need to implement this
+
+  if (!selectedDocumentId || !selectedPrompt) {
+    alert("Please select both a document and a template.");
+    return;
+  }
 
   const res = await fetch('/generate_summary', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt: selectedPrompt, document_text: documentText })
+    body: JSON.stringify({
+      prompt: selectedPrompt,
+      document_id: selectedDocumentId
+    })
   });
 
   const result = await res.json();
   if (result.summary) {
-    alert("Summary:\n" + result.summary); // Replace with modal or preview
+    showSummary(result.summary, selectedDocumentName); // ✅ Display summary in dashboard
   } else {
     alert("Error: " + result.error);
   }
@@ -941,6 +948,7 @@ async function useSelectedTemplate() {
 </script>
 </body>
 </html>
+
 
 
 
