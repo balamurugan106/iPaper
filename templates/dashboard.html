@@ -513,11 +513,7 @@
       </div>
     </div>
     <h1>Welcome back, {{ name }}</h1>
-    <div id="summaryPreview" class="main-content hidden">
-  <div class="section-title">Summary for <span id="summaryFileName"></span></div>
-  <div class="document-preview" id="summaryContent"></div>
-</div>
-
+    <p class="welcome-subtitle muted">Manage your documents and generate summaries with ease</p>
   </main>
 </div>
 
@@ -584,24 +580,7 @@
     div.dataset.fileName = doc.filename || doc.name || 'untitled';
     div.draggable = true;
 
-    let clickTimer = null;
-
-  div.addEventListener('click', () => {
-    // Delay to distinguish single vs double click
-    clickTimer = setTimeout(() => {
-      document.querySelectorAll('.document-item').forEach(d => d.classList.remove('selected'));
-      div.classList.add('selected');
-      selectedDocumentId = doc.id;
-      selectedDocumentName = doc.filename;
-    }, 250); // Adjust delay if needed
-  });
-
-  div.addEventListener('dblclick', () => {
-    clearTimeout(clickTimer); // Cancel single-click action
-    window.open(`/view-document/${doc.id}`, '_blank');
-  });
-
-  return div;
+    div.onclick = () => window.open(`/view-document/${doc.id}`, '_blank');
 
     const delBtn = document.createElement('button');
     delBtn.className = 'document-delete-btn';
@@ -920,46 +899,81 @@ function useSelectedTemplate() {
   }
 });
 
+  let selectedDocumentId = null;
+
+// Allow selecting only one document for summarization
+function createDocumentItem(doc) {
+  const div = document.createElement('div');
+  div.className = 'document-item';
+  div.textContent = doc.filename || doc.name || 'untitled';
+  div.dataset.docId = doc.id;
+
+  div.onclick = (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.document-item').forEach(d => d.classList.remove('active-category'));
+    div.classList.add('active-category');
+    selectedDocumentId = doc.id;
+  };
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'document-delete-btn';
+  delBtn.textContent = '🗑';
+  delBtn.onclick = async (e) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${doc.filename}"?`)) {
+      await fetch(`/delete-document/${doc.id}`, { method: 'GET' });
+      await loadDocuments();
+    }
+  };
+
+  div.appendChild(delBtn);
+  return div;
+}
+
+// Extend useSelectedTemplate to summarize document
 async function useSelectedTemplate() {
   const selectedId = document.getElementById('templateContent').dataset.selectedTemplateId;
-  const selectedPrompt = document.querySelector('.content-box-description').textContent;
+  if (!selectedId) return alert('Please select a template');
+  if (!selectedDocumentId) return alert('Please select one document from the list before generating.');
 
-  if (!selectedDocumentId || !selectedPrompt) {
-    alert("Please select both a document and a template.");
-    return;
+  try {
+    const resT = await fetch('/get_templates');
+    const templates = await resT.json();
+    const chosen = templates.find(t => t.id == selectedId);
+    if (!chosen) return alert('Template not found');
+
+    const response = await fetch('/summarize_document', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        document_id: selectedDocumentId,
+        prompt: chosen.prompt
+      })
+    });
+
+    const data = await response.json();
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+
+    document.getElementById('templateModal').classList.add('hidden');
+
+    // Display the summary nicely in the dashboard
+    const main = document.querySelector('.main');
+    const preview = document.createElement('div');
+    preview.className = 'document-preview';
+    preview.innerHTML = `<h2>Summary for ${data.filename}</h2><p>${data.summary.replace(/\n/g, '<br>')}</p>`;
+    main.appendChild(preview);
+
+  } catch (err) {
+    alert('Error summarizing: ' + err.message);
+    console.error(err);
   }
-
-  const res = await fetch('/generate_summary', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt: selectedPrompt,
-      document_id: selectedDocumentId
-    })
-  });
-
-  const result = await res.json();
-  if (result.summary) {
-    showSummary(result.summary, selectedDocumentName); // ✅ Display summary in dashboard
-  } else {
-    alert("Error: " + result.error);
-  }
-
-  document.getElementById('templateModal').classList.add('hidden');
 }
 
-function showSummary(text, fileName) {
-  $('#summaryFileName').textContent = fileName;
-  $('#summaryContent').textContent = text;
-  $('#summaryPreview').classList.remove('hidden');
-}
 
   
 </script>
 </body>
 </html>
-
-
 
 
 
