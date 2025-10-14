@@ -16,10 +16,8 @@ from flask import url_for
 import uuid
 from datetime import datetime, timedelta
 import traceback
+from PyPDF2 import PdfReader
 import google.generativeai as genai
-from gemini_client import generate_summary
-
-
 
 
 load_dotenv()
@@ -967,11 +965,56 @@ def get_templates():
 
 
 
+@app.route('/summarize_document', methods=['POST'])
+def summarize_document():
+    if 'user_id' not in session:
+        return jsonify({"success": False, "error": "Not logged in"}), 401
+    try:
+        data = request.get_json()
+        doc_id = data.get('document_id')
+        template_prompt = data.get('prompt')
+
+        if not doc_id or not template_prompt:
+            return jsonify({"success": False, "error": "Missing parameters"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT attachment, filename FROM files WHERE fileid = %s AND userid = %s",
+                    (doc_id, session['user_id']))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not row:
+            return jsonify({"success": False, "error": "File not found"}), 404
+
+        pdf_data, filename = row
+        pdf_bytes = pdf_data.tobytes() if hasattr(pdf_data, 'tobytes') else pdf_data
+
+        # --- Extract text from PDF ---
+        import io
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+
+        # --- Summarize using Gemini ---
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-pro")
+        prompt = f"{template_prompt}\n\nDocument content:\n{text[:15000]}"  # limit to avoid token overload
+        result = model.generate_content(prompt)
+        summary = result.text.strip() if result and result.text else "No summary generated."
+
+        return jsonify({"success": True, "summary": summary, "filename": filename})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+        
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-
-
 
