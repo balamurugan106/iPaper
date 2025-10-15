@@ -1017,7 +1017,8 @@ def summarize_document():
 
         # --- Summarize using Gemini ---
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
 
         prompt = f"{template_prompt}\n\nDocument Content (truncated to fit limits):\n{text}"
         result = model.generate_content(prompt)
@@ -1034,5 +1035,6 @@ def summarize_document():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
