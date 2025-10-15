@@ -3,6 +3,7 @@ psycopg2-binary
 gunicorn
 Flask-Session
 python-dotenv
+python-3.11.9
 werkzeug
 google-generativeai>=1.0.0
 bcrypt
@@ -15,6 +16,7 @@ requests
 pdfplumber
 transformers
 torch
+
 
 
 
