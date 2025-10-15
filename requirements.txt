@@ -4,12 +4,9 @@ gunicorn
 Flask-Session
 python-dotenv
 werkzeug
+google-generativeai>=1.0.0
 bcrypt
 numpy
-google-generativeai>=1.0.0
-
-
-
 PyPDF2
 nltk
 scikit-learn
@@ -18,6 +15,7 @@ requests
 pdfplumber
 transformers
 torch
+
 
 
 
