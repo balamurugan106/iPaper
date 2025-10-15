@@ -2,7 +2,6 @@ Flask
 psycopg2-binary
 gunicorn
 Flask-Session
-python-3.11.9
 python-dotenv
 werkzeug
 bcrypt
@@ -15,3 +14,4 @@ pdfplumber
 transformers
 torch
 google-generativeai==0.8.4
+
