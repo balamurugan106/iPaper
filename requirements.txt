@@ -14,6 +14,8 @@ pdfplumber
 nltk
 scikit-learn
 requests
-protobuf==5.28.2
 google-generativeai==1.2.0
+protobuf==5.28.2
+
+
 
