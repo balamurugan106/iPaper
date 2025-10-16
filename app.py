@@ -996,54 +996,38 @@ def summarize_document():
         pdf_data, filename = row
         pdf_bytes = pdf_data.tobytes() if hasattr(pdf_data, 'tobytes') else pdf_data
 
-        # --- Extract text safely ---
+        # --- Extract Text from PDF ---
         text_chunks = []
         try:
-            from PyPDF2 import PdfReader
-            import io
             reader = PdfReader(io.BytesIO(pdf_bytes))
-            for page_num, page in enumerate(reader.pages):
-                try:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text_chunks.append(page_text)
-                    # Render free tier = keep small
-                    if page_num >= 5:
-                        break
-                except Exception as inner_err:
-                    print(f"⚠️ Skipped page {page_num+1}: {inner_err}")
+            for i, page in enumerate(reader.pages):
+                if i >= 5:
+                    break  # Limit pages for performance
+                text = page.extract_text()
+                if text:
+                    text_chunks.append(text)
         except Exception as e:
-            print("⚠️ PyPDF2 failed:", e)
+            print("PDF extraction failed:", e)
 
-        text = "\n".join(text_chunks)[:15000]  # 15k char limit
+        full_text = "\n".join(text_chunks)[:15000]
+        if not full_text.strip():
+            return jsonify({"success": False, "error": "No readable text found"}), 400
 
-        if not text.strip():
-            return jsonify({"success": False, "error": "No text could be extracted from PDF"}), 400
-
-        # --- NEW GEMINI SECTION (v1 API) ---
+        # --- Gemini Summarization ---
         import google.generativeai as genai
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-        try:
-            # Use correct model path
-            model = genai.GenerativeModel("models/gemini-1.5-flash")
-            
+        model = genai.GenerativeModel("gemini-pro")
 
-            prompt = f"{template_prompt}\n\nDocument Content (truncated to fit limits):\n{text}"
+        prompt = f"{template_prompt}\n\nDocument content:\n{full_text}"
+        response = model.generate_content(prompt)
 
-            # Generate content safely
-            response = model.generate_content(prompt)
+        summary = response.text.strip() if hasattr(response, "text") else "No summary generated."
 
-            summary = response.text.strip() if hasattr(response, "text") else "No summary generated."
-            return jsonify({"success": True, "summary": summary})
-
-        except Exception as gemini_err:
-            print("Gemini API error:", gemini_err)
-            return jsonify({"success": False, "error": f"Error summarizing: {gemini_err}"}), 500
+        return jsonify({"success": True, "summary": summary})
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        print("Gemini API error:", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -1056,6 +1040,7 @@ def check_gemini_version():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
