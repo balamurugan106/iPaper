@@ -1017,21 +1017,25 @@ def summarize_document():
         if not text.strip():
             return jsonify({"success": False, "error": "No text could be extracted from PDF"}), 400
 
-        # --- Summarize using Gemini ---
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    
-        model = genai.GenerativeModel("gemini-1.5-flash")
 
+try:
+    # Use correct model name from v1 API
+    model = genai.GenerativeModel("models/gemini-1.5-flash")
 
-        prompt = f"{template_prompt}\n\nDocument Content (truncated to fit limits):\n{text}"
-        result = model.generate_content(prompt)
-        summary = result.text.strip() if result and hasattr(result, "text") else "No summary generated."
+    prompt = f"{template_prompt}\n\nDocument Content (truncated to fit limits):\n{text}"
 
-        return jsonify({"success": True, "summary": summary, "filename": filename})
+    # Generate text safely
+    response = model.generate_content(prompt)
+    summary = response.text.strip() if hasattr(response, "text") else "No summary generated."
+except Exception as e:
+    print("Gemini error:", e)
+    summary = f"Error summarizing: {e}"
 
     except Exception as e:
         import traceback
         traceback.print_exc()
+        
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/check_gemini_version")
@@ -1043,6 +1047,7 @@ def check_gemini_version():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
