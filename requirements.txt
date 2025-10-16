@@ -13,4 +13,7 @@ scikit-learn
 requests
 transformers
 torch
-google-generativeai==0.8.4
+google-generativeai==1.2.0
+protobuf==5.28.2
+
+
