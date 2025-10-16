@@ -11,6 +11,8 @@ from flask import Response
 from flask_session import Session
 import bcrypt
 import os
+from flask import Flask, request, jsonify, render_template, send_from_directory
+import pdfplumber
 import re
 from flask import url_for
 import uuid
@@ -19,6 +21,7 @@ import traceback
 from PyPDF2 import PdfReader
 import google.generativeai as genai
 import io
+
 
 
 load_dotenv()
@@ -1041,6 +1044,7 @@ def check_gemini_version():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
