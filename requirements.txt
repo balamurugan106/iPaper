@@ -15,5 +15,3 @@ transformers
 torch
 google-generativeai==1.2.0
 protobuf==5.28.2
-
-
