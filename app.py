@@ -1017,7 +1017,7 @@ def summarize_document():
         import google.generativeai as genai
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
         prompt = f"{template_prompt}\n\nDocument content:\n{full_text}"
         response = model.generate_content(prompt)
@@ -1040,6 +1040,7 @@ def check_gemini_version():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
