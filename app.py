@@ -1027,6 +1027,7 @@ def summarize_document():
         try:
             # Use correct model path
             model = genai.GenerativeModel("models/gemini-1.5-flash")
+            
 
             prompt = f"{template_prompt}\n\nDocument Content (truncated to fit limits):\n{text}"
 
@@ -1055,6 +1056,7 @@ def check_gemini_version():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
