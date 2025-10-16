@@ -1,3 +1,5 @@
+pip>=24.2
+setuptools>=75.0.0
 Flask==3.0.3
 Flask-Session
 gunicorn
@@ -15,3 +17,4 @@ transformers
 torch
 protobuf==5.28.2
 google-generativeai==1.2.0
+
